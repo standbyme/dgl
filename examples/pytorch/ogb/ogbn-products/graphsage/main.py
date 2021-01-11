@@ -166,7 +166,7 @@ def run(args, device, data):
             optimizer.step()
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
-            if step % args.log_every == 0:
+            if args.log and step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
                 print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
@@ -176,7 +176,7 @@ def run(args, device, data):
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
         if epoch >= 5:
             avg += toc - tic
-        if epoch % args.eval_every == 0 and epoch != 0:
+        if args.eval and epoch % args.eval_every == 0 and epoch != 0:
             eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, device)
             if args.save_pred:
                 np.savetxt(args.save_pred + '%02d' % epoch, pred.argmax(1).cpu().numpy(), '%d')
@@ -193,13 +193,16 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
         help="GPU device ID. Use -1 for CPU training")
+    argparser.add_argument('--num-times', type=int, default=10)
     argparser.add_argument('--num-epochs', type=int, default=20)
     argparser.add_argument('--num-hidden', type=int, default=256)
     argparser.add_argument('--num-layers', type=int, default=3)
     argparser.add_argument('--fan-out', type=str, default='5,10,15')
     argparser.add_argument('--batch-size', type=int, default=1000)
     argparser.add_argument('--val-batch-size', type=int, default=10000)
+    argparser.add_argument("--log", action='store_true', default=False)
     argparser.add_argument('--log-every', type=int, default=20)
+    argparser.add_argument("--eval", action='store_true', default=False)
     argparser.add_argument('--eval-every', type=int, default=1)
     argparser.add_argument('--lr', type=float, default=0.003)
     argparser.add_argument('--dropout', type=float, default=0.5)
@@ -208,7 +211,7 @@ if __name__ == '__main__':
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--wd', type=float, default=0)
     args = argparser.parse_args()
-    
+
     if args.gpu >= 0:
         device = th.device('cuda:%d' % args.gpu)
     else:
@@ -232,6 +235,6 @@ if __name__ == '__main__':
 
     # Run 10 times
     test_accs = []
-    for i in range(10):
+    for i in range(args.num_times):
         test_accs.append(run(args, device, data))
         print('Average test accuracy:', np.mean(test_accs), '±', np.std(test_accs))
