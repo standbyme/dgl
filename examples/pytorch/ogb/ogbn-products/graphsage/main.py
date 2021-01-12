@@ -10,6 +10,8 @@ import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
 
+from torch.cuda import nvtx
+
 class SAGE(nn.Module):
     def __init__(self,
                  in_feats,
@@ -153,17 +155,21 @@ def run(args, device, data):
             tic_step = time.time()
 
             # copy block to gpu
+            nvtx.range_push("d")
             blocks = [blk.int().to(device) for blk in blocks]
 
             # Load the input features as well as output labels
             batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
+            nvtx.range_pop()
 
+            nvtx.range_push("c")
             # Compute loss and prediction
             batch_pred = model(blocks, batch_inputs)
             loss = loss_fcn(batch_pred, batch_labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            nvtx.range_pop()
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
             if args.log and step % args.log_every == 0:

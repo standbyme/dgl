@@ -13,6 +13,8 @@ from ..._deprecate import kernel as K
 from ...function.base import TargetCode
 from ...base import dgl_warning
 
+from torch.cuda import nvtx
+
 if LooseVersion(th.__version__) < LooseVersion("1.5.0"):
     dgl_warning("Detected an old version of PyTorch. Suggest using torch>=1.5.0 "
                 "for the best experience.")
@@ -174,7 +176,10 @@ def repeat(input, repeats, dim):
     return th.repeat_interleave(input, repeats, dim) # PyTorch 1.1
 
 def gather_row(data, row_index):
-    return th.index_select(data, 0, row_index.long())
+    nvtx.range_push("gr")
+    v = th.index_select(data, 0, row_index.long())
+    nvtx.range_pop()
+    return v
 
 def slice_axis(data, axis, begin, end):
     return th.narrow(data, axis, begin, end - begin)
