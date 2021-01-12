@@ -151,6 +151,12 @@ class _NodeDataLoaderIter:
         nvtx.range_push("s")
         result = next(self.iter_)
         _restore_blocks_storage(result[-1], self.node_dataloader.collator.g)
+
+        if self.node_dataloader.block_transform:
+            input_nodes, seeds, blocks = result
+            blocks = list(map(self.node_dataloader.block_transform, blocks))
+            result = (input_nodes, seeds, blocks)
+
         nvtx.range_pop()
         return result
 
@@ -204,7 +210,7 @@ class NodeDataLoader:
     """
     collator_arglist = inspect.getfullargspec(NodeCollator).args
 
-    def __init__(self, g, nids, block_sampler, **kwargs):
+    def __init__(self, g, nids, block_sampler, block_transform=None, **kwargs):
         collator_kwargs = {}
         dataloader_kwargs = {}
         for k, v in kwargs.items():
@@ -228,6 +234,8 @@ class NodeDataLoader:
                                          collate_fn=self.collator.collate,
                                          **dataloader_kwargs)
             self.is_distributed = False
+
+        self.block_transform = block_transform
 
     def __iter__(self):
         """Return the iterator of the data loader."""
