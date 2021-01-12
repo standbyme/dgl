@@ -5516,7 +5516,6 @@ class DGLHeteroGraph(object):
         DGLHeteroGraph
             Graph in the new ID type.
         """
-        nvtx.range_push("at")
         if idtype is None:
             return self
         utils.check_valid_idtype(idtype)
@@ -5525,7 +5524,6 @@ class DGLHeteroGraph(object):
         bits = 32 if idtype == F.int32 else 64
         ret = copy.copy(self)
         ret._graph = self._graph.asbits(bits)
-        nvtx.range_pop()
         return ret
 
     # TODO: Formats should not be specified, just saving all the materialized formats
@@ -5656,7 +5654,10 @@ class DGLHeteroGraph(object):
         long
         idtype
         """
-        return self.astype(F.int32)
+        nvtx.range_push("int")
+        v = self.astype(F.int32)
+        nvtx.range_pop()
+        return v
 
     #################################################################
     # DEPRECATED: from the old DGLGraph
