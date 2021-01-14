@@ -1,11 +1,15 @@
 """DGL PyTorch DataLoaders"""
 import inspect
+from queue import Queue
+
 from torch.utils.data import DataLoader
 from ..dataloader import NodeCollator, EdgeCollator, GraphCollator
 from ...distributed import DistGraph
 from ...distributed import DistDataLoader
 
 from torch.cuda import nvtx
+
+from concurrent.futures.thread import ThreadPoolExecutor
 
 def _remove_kwargs_dist(kwargs):
     if 'num_workers' in kwargs:
@@ -145,8 +149,28 @@ class _NodeDataLoaderIter:
     def __init__(self, node_dataloader):
         self.node_dataloader = node_dataloader
         self.iter_ = iter(node_dataloader.dataloader)
+        self.prefetch_iter_executor = ThreadPoolExecutor(max_workers=1)
+        self.queue = Queue()
+        self.prefetch_iter_executor.submit(self.prefetch__next__)
 
     def __next__(self):
+        v = self.queue.get()
+
+        if v == "done":
+            raise StopIteration
+        return v
+
+    def prefetch__next__(self):
+        while True:
+            try:
+                result = self.raw__next__()
+                self.queue.put(result)
+            except StopIteration:
+                print("StopIteration")
+                self.queue.put("done")
+                break
+
+    def raw__next__(self):
         # input_nodes, output_nodes, [items], blocks
         try:
             nvtx.range_push("s")
@@ -237,6 +261,12 @@ class NodeDataLoader:
                                          **dataloader_kwargs)
             self.is_distributed = False
         self.block_transform = block_transform
+        self.prefetch_iter_executor = ThreadPoolExecutor(max_workers=1)
+        self.prefetch_iter_future = self.prefetch__iter__()
+
+    def prefetch__iter__(self):
+        prefetch_iter_future = self.prefetch_iter_executor.submit(lambda: _NodeDataLoaderIter(self))
+        return prefetch_iter_future
 
     def __iter__(self):
         """Return the iterator of the data loader."""
@@ -245,9 +275,12 @@ class NodeDataLoader:
             return iter(self.dataloader)
         else:
             nvtx.range_push("ni")
-            v = _NodeDataLoaderIter(self)
+            print("result start")
+            iter_result = self.prefetch_iter_future.result()
+            print("result end")
+            self.prefetch_iter_future = self.prefetch__iter__()
             nvtx.range_pop()
-            return v
+            return iter_result
 
     def __len__(self):
         """Return the number of batches of the data loader."""
