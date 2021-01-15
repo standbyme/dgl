@@ -8,6 +8,7 @@ import dgl.nn.pytorch as dglnn
 import time
 import argparse
 import tqdm
+from dgl.dataloading.pytorch.prefetch import PreDataLoader
 from ogb.nodeproppred import DglNodePropPredDataset
 
 from torch.cuda import nvtx
@@ -135,7 +136,7 @@ def run(args, device, data):
         shuffle=True,
         drop_last=False,
         num_workers=args.num_workers)
-
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs)
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -153,7 +154,7 @@ def run(args, device, data):
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+        for step, (input_nodes, seeds, blocks) in enumerate(pre_dataloader):
             tic_step = time.time()
 
             nvtx.range_push("d")
