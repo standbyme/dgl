@@ -225,7 +225,7 @@ class HeteroGraph : public BaseHeteroGraph {
   static HeteroGraphPtr AsNumBits(HeteroGraphPtr g, uint8_t bits);
 
   /*! \brief Copy the data to another context */
-  static HeteroGraphPtr CopyTo(HeteroGraphPtr g, const DLContext& ctx);
+  static HeteroGraphPtr CopyTo(HeteroGraphPtr g, const DLContext& ctx, DGLStreamHandle stream= nullptr);
 
   /*! \brief Copy the data to shared memory.
   *
