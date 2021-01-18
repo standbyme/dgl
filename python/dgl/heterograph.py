@@ -5161,9 +5161,12 @@ class DGLHeteroGraph(object):
         ret = copy.copy(self)
 
         # 1. Copy graph structure
+        nvtx.range_push("1")
         ret._graph = self._graph.copy_to(utils.to_dgl_context(device))
+        nvtx.range_pop()
 
         # 2. Copy features
+        nvtx.range_push("2")
         # TODO(minjie): handle initializer
         new_nframes = []
         for nframe in self._node_frames:
@@ -5174,8 +5177,10 @@ class DGLHeteroGraph(object):
         for eframe in self._edge_frames:
             new_eframes.append(eframe.to(device, **kwargs))
         ret._edge_frames = new_eframes
+        nvtx.range_pop()
 
         # 2. Copy misc info
+        nvtx.range_push("3")
         if self._batch_num_nodes is not None:
             new_bnn = {k : F.copy_to(num, device, **kwargs)
                        for k, num in self._batch_num_nodes.items()}
@@ -5184,6 +5189,7 @@ class DGLHeteroGraph(object):
             new_bne = {k : F.copy_to(num, device, **kwargs)
                        for k, num in self._batch_num_edges.items()}
             ret._batch_num_edges = new_bne
+        nvtx.range_pop()
 
         return ret
 
