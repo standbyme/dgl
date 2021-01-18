@@ -1234,18 +1234,18 @@ HeteroGraphPtr UnitGraph::CopyTo(HeteroGraphPtr g, const DLContext& ctx) {
       (bg->in_csr_->defined())? CSRPtr(new CSR(bg->in_csr_->CopyTo(ctx))) : nullptr;
     nvtxRangePop();
 
-    nvtxRangePushA("out_csr");
-    CSRPtr new_outcsr =
-      (bg->out_csr_->defined())? CSRPtr(new CSR(bg->out_csr_->CopyTo(ctx))) : nullptr;
-    nvtxRangePop();
-
-    nvtxRangePushA("coo");
-    COOPtr new_coo =
-      (bg->coo_->defined())? COOPtr(new COO(bg->coo_->CopyTo(ctx))) : nullptr;
-    nvtxRangePop();
+//    nvtxRangePushA("out_csr");
+//    CSRPtr new_outcsr =
+//      (bg->out_csr_->defined())? CSRPtr(new CSR(bg->out_csr_->CopyTo(ctx))) : nullptr;
+//    nvtxRangePop();
+//
+//    nvtxRangePushA("coo");
+//    COOPtr new_coo =
+//      (bg->coo_->defined())? COOPtr(new COO(bg->coo_->CopyTo(ctx))) : nullptr;
+//    nvtxRangePop();
 
     return HeteroGraphPtr(
-        new UnitGraph(g->meta_graph(), new_incsr, new_outcsr, new_coo, bg->formats_));
+        new UnitGraph(g->meta_graph(), new_incsr, nullptr, nullptr, bg->formats_));
   }
 }
 
