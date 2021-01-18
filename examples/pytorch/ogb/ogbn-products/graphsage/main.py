@@ -154,7 +154,7 @@ def run(args, device, data):
         shuffle=True,
         drop_last=False,
         num_workers=args.num_workers)
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs)
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels)
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -172,35 +172,8 @@ def run(args, device, data):
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (input_nodes, seeds, blocks) in enumerate(pre_dataloader):
+        for step, (blocks, batch_inputs, batch_labels, seeds) in enumerate(pre_dataloader):
             tic_step = time.time()
-
-            nvtx.range_push("d")
-
-            # copy block to gpu
-            nvtx.range_push("dg")
-            blocks = [blk.to(device) for blk in blocks]
-            nvtx.range_pop()  # dg
-
-            # Load the input features as well as output labels
-            nvtx.range_push("df")
-
-            nvtx.range_push("dfs")
-            nfeat_slice = nfeat[input_nodes]
-            nvtx.range_pop()  # dfs
-
-            nvtx.range_push("dft")
-            batch_inputs = nfeat_slice.to(device)
-            nvtx.range_pop()  # dft
-
-            nvtx.range_pop()  # df
-
-            nvtx.range_push("dl")
-            batch_labels = labels[seeds]
-            nvtx.range_pop()  # dl
-
-            nvtx.range_pop()  # d
-
             nvtx.range_push("c")
             # Compute loss and prediction
             batch_pred = model(blocks, batch_inputs)
