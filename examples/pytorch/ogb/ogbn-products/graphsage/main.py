@@ -183,7 +183,21 @@ def run(args, device, data):
             nvtx.range_pop()  # dg
 
             # Load the input features as well as output labels
-            batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
+            nvtx.range_push("df")
+
+            nvtx.range_push("dfs")
+            nfeat_slice = nfeat[input_nodes]
+            nvtx.range_pop()  # dfs
+
+            nvtx.range_push("dft")
+            batch_inputs = nfeat_slice.to(device)
+            nvtx.range_pop()  # dft
+
+            nvtx.range_pop()  # df
+
+            nvtx.range_push("dl")
+            batch_labels = labels[seeds]
+            nvtx.range_pop()  # dl
 
             nvtx.range_pop()  # d
 
