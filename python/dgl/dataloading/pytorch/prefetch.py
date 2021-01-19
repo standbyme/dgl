@@ -15,7 +15,7 @@ class PreDataLoaderIter:
         self.iter_queue = Queue()
         self.is_first = True
         self.data_future = None  # Future[blocks, batch_inputs, batch_labels, seeds]
-        self.prefetch_next_executor = ThreadPoolExecutor(max_workers=2)
+        self.prefetch_next_executor = ThreadPoolExecutor(max_workers=3)
 
         self.prefetch_next_executor.submit(self.prefetch__next__)
 
@@ -40,23 +40,28 @@ class PreDataLoaderIter:
 
         input_nodes, seeds, blocks = v
 
-        with torch.cuda.stream(self.HtoD_stream):
-            nvtx.range_push("dg")
-            blocks = [blk.to(self.device, non_blocking=True) for blk in blocks]
-            nvtx.range_pop()
+        def f():
+            with torch.cuda.stream(self.HtoD_stream):
+                nvtx.range_push("dg")
+                blocks_v = [blk.to(self.device, non_blocking=True) for blk in blocks]
+                nvtx.range_pop()
+                return blocks_v
+
+        blocks_future = self.prefetch_next_executor.submit(f)
 
         nvtx.range_push("dfs")
         nfeat_slice = self.nfeat[input_nodes].pin_memory()
         nvtx.range_pop()
 
+        nvtx.range_push("dl")
+        batch_labels = self.labels[seeds]
+        nvtx.range_pop()
+
+        blocks = blocks_future.result()
         with torch.cuda.stream(self.HtoD_stream):
             nvtx.range_push("dft")
             batch_inputs = nfeat_slice.to(self.device, non_blocking=True)
             nvtx.range_pop()
-
-        nvtx.range_push("dl")
-        batch_labels = self.labels[seeds]
-        nvtx.range_pop()
 
         return blocks, batch_inputs, batch_labels, seeds
 
