@@ -10,11 +10,23 @@
 #include <cuda_runtime.h>
 #include "cuda_common.h"
 
+#include "nvToolsExt.h"
+
 namespace dgl {
 namespace runtime {
 
 class CUDADeviceAPI final : public DeviceAPI {
- public:
+    void* buffer_pinned{};
+    const size_t max_size{20000000};
+public:
+    CUDADeviceAPI() {
+        std::cout << "init CUDADeviceAPI" << std::endl;
+        void* p;
+        CUDA_CALL(cudaMallocHost((void**)&p, max_size));
+        buffer_pinned = p;
+    }
+
+public:
   void SetDevice(DGLContext ctx) final {
     CUDA_CALL(cudaSetDevice(ctx.device_id));
   }
@@ -129,7 +141,33 @@ class CUDADeviceAPI final : public DeviceAPI {
       GPUCopy(from, to, size, cudaMemcpyDeviceToHost, cu_stream);
     } else if (ctx_from.device_type == kDLCPU && ctx_to.device_type == kDLGPU) {
       CUDA_CALL(cudaSetDevice(ctx_to.device_id));
-      GPUCopy(from, to, size, cudaMemcpyHostToDevice, cu_stream);
+      void* from_pinned;
+      bool flag = false;
+
+      if(size<max_size) from_pinned = buffer_pinned;
+      else {
+          std::cout << "ri" << std::endl;
+          flag = true;
+          nvtxRangePushA("m");
+          CUDA_CALL(cudaMallocHost((void**)&from_pinned, size));
+          nvtxRangePop();
+      }
+
+      nvtxRangePushA("c");
+      memcpy(from_pinned, from, size);
+      nvtxRangePop();
+
+      nvtxRangePushA("gc");
+      GPUCopy(from_pinned, to, size, cudaMemcpyHostToDevice, nullptr);
+      nvtxRangePop();
+
+      if(flag) {
+          std::cout << "rf" << std::endl;
+          nvtxRangePushA("f");
+          CUDA_CALL(cudaFreeHost(from_pinned));
+          nvtxRangePop();
+      }
+
     } else {
       LOG(FATAL) << "expect copy from/to GPU or between GPU";
     }
