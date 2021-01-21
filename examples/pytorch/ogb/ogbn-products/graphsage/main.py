@@ -112,7 +112,7 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = nfeat[input_nodes]
+    batch_inputs = nfeat[input_nodes].to(device)
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
 
@@ -166,7 +166,7 @@ def run(args, device, data):
             optimizer.step()
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
-            if step % args.log_every == 0:
+            if False and step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
                 print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
@@ -176,7 +176,7 @@ def run(args, device, data):
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
         if epoch >= 5:
             avg += toc - tic
-        if epoch % args.eval_every == 0 and epoch != 0:
+        if False and epoch % args.eval_every == 0 and epoch != 0:
             eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, device)
             if args.save_pred:
                 np.savetxt(args.save_pred + '%02d' % epoch, pred.argmax(1).cpu().numpy(), '%d')
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
     graph, labels = data[0]
-    nfeat = graph.ndata.pop('feat').to(device)
+    nfeat = graph.ndata.pop('feat')
     labels = labels[:, 0].to(device)
 
     in_feats = nfeat.shape[1]
@@ -232,6 +232,6 @@ if __name__ == '__main__':
 
     # Run 10 times
     test_accs = []
-    for i in range(10):
+    for i in range(1):
         test_accs.append(run(args, device, data))
         print('Average test accuracy:', np.mean(test_accs), '±', np.std(test_accs))
