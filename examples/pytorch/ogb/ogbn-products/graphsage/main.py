@@ -115,7 +115,11 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     Extracts features and labels for a set of nodes.
     """
     batch_inputs = nfeat[input_nodes]
+
+    nvtx.range_push("dl")
     batch_labels = labels[seeds]
+    nvtx.range_pop()  # dl
+
     return batch_inputs, batch_labels
 
 #### Entry point
@@ -156,12 +160,16 @@ def run(args, device, data):
             tic_step = time.time()
 
             nvtx.range_push("d")
+
             # copy block to gpu
+            nvtx.range_push("dg")
             blocks = [blk.int().to(device) for blk in blocks]
+            nvtx.range_pop()  # dg
 
             # Load the input features as well as output labels
             batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
-            nvtx.range_pop()
+
+            nvtx.range_pop()  # d
 
             nvtx.range_push("c")
             # Compute loss and prediction
@@ -170,7 +178,7 @@ def run(args, device, data):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            nvtx.range_pop()
+            nvtx.range_pop()  # c
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
             if step % args.log_every == 0:
@@ -180,7 +188,7 @@ def run(args, device, data):
                     epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
 
         toc = time.time()
-        nvtx.range_pop()
+        nvtx.range_pop()  # e
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
         if epoch >= 5:
             avg += toc - tic
