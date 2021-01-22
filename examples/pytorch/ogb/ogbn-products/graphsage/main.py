@@ -112,7 +112,8 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = nfeat[input_nodes].to(device)
+    nfeat_slice = nfeat[input_nodes]
+    batch_inputs = nfeat_slice.to(device)
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
 
