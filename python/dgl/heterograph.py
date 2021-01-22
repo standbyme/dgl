@@ -18,6 +18,8 @@ from . import backend as F
 from .frame import Frame
 from .view import HeteroNodeView, HeteroNodeDataView, HeteroEdgeView, HeteroEdgeDataView
 
+from torch.cuda import nvtx
+
 __all__ = ['DGLHeteroGraph', 'combine_names']
 
 class DGLHeteroGraph(object):
@@ -5646,7 +5648,10 @@ class DGLHeteroGraph(object):
         long
         idtype
         """
-        return self.astype(F.int32)
+        nvtx.range_push("int")
+        v = self.astype(F.int32)
+        nvtx.range_pop()
+        return v
 
     #################################################################
     # DEPRECATED: from the old DGLGraph
