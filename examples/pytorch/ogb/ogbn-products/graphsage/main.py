@@ -10,6 +10,8 @@ import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
 
+from torch.cuda import nvtx
+
 class SAGE(nn.Module):
     def __init__(self,
                  in_feats,
@@ -112,8 +114,18 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
+    nvtx.range_push("dfs")
     nfeat_slice = nfeat[input_nodes]
+    nvtx.range_pop()  # dfs
+
+    nvtx.range_push("dft")
     batch_inputs = nfeat_slice.to(device)
+    nvtx.range_pop()  # dft
+
+    nvtx.range_push("del")
+    del nfeat_slice
+    nvtx.range_pop()  # del
+
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
 
@@ -209,7 +221,7 @@ if __name__ == '__main__':
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--wd', type=float, default=0)
     args = argparser.parse_args()
-    
+
     if args.gpu >= 0:
         device = th.device('cuda:%d' % args.gpu)
     else:
