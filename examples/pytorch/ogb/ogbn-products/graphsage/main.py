@@ -112,7 +112,7 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = nfeat[input_nodes]
+    batch_inputs = nfeat[input_nodes].to(device)
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
 
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
     graph, labels = data[0]
-    nfeat = graph.ndata.pop('feat').to(device)
+    nfeat = graph.ndata.pop('feat')
     labels = labels[:, 0].to(device)
 
     in_feats = nfeat.shape[1]
