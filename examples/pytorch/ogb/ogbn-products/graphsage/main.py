@@ -205,8 +205,7 @@ def run(args, device, data):
         toc = time.time()
         nvtx.range_pop()  # e
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
-        if epoch >= 5:
-            avg += toc - tic
+        avg += toc - tic
         if args.eval and epoch % args.eval_every == 0 and epoch != 0:
             eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, device)
             if args.save_pred:
@@ -217,7 +216,7 @@ def run(args, device, data):
                 best_test_acc = test_acc
             print('Best Eval Acc {:.4f} Test Acc {:.4f}'.format(best_eval_acc, best_test_acc))
 
-    print('Avg epoch time: {}'.format(avg / (epoch - 4)))
+    print('Avg epoch time: {}'.format(avg / args.num_epochs))
     return best_test_acc
 
 if __name__ == '__main__':
