@@ -12,6 +12,7 @@ from dgl.dataloading.pytorch.prefetch import PreDataLoader
 from ogb.nodeproppred import DglNodePropPredDataset
 
 from torch.cuda import nvtx
+from torch import multiprocessing as mp
 
 class SAGE(nn.Module):
     def __init__(self,
@@ -209,6 +210,8 @@ def run(args, device, data):
     return best_test_acc
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn')
+
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
         help="GPU device ID. Use -1 for CPU training")

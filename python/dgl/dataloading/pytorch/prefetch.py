@@ -1,3 +1,4 @@
+from torch import multiprocessing as mp
 from concurrent.futures.thread import ThreadPoolExecutor
 from queue import Queue
 
@@ -6,7 +7,8 @@ from torch.cuda import nvtx
 
 
 class PreDataLoaderIter:
-    def __init__(self, dataloader_iter, device, nfeat, labels, HtoD_stream):
+    def __init__(self, dataloader_iter, device, nfeat, labels, HtoD_stream, batch_inputs_conn):
+        self.batch_inputs_conn = batch_inputs_conn
         self.HtoD_stream: torch.cuda.Stream = HtoD_stream
         self.labels = labels
         self.device = device
@@ -40,23 +42,18 @@ class PreDataLoaderIter:
 
         input_nodes, seeds, blocks = v
 
+        self.batch_inputs_conn.send(input_nodes)
+
         with torch.cuda.stream(self.HtoD_stream):
             nvtx.range_push("dg")
             blocks = [blk.to(self.device, non_blocking=True) for blk in blocks]
             nvtx.range_pop()
 
-        nvtx.range_push("dfs")
-        nfeat_slice = self.nfeat[input_nodes].pin_memory()
-        nvtx.range_pop()
-
-        with torch.cuda.stream(self.HtoD_stream):
-            nvtx.range_push("dft")
-            batch_inputs = nfeat_slice.to(self.device, non_blocking=True)
-            nvtx.range_pop()
-
         nvtx.range_push("dl")
         batch_labels = self.labels[seeds]
         nvtx.range_pop()
+
+        batch_inputs = self.batch_inputs_conn.recv()
 
         return blocks, batch_inputs, batch_labels, len(seeds)
 
@@ -73,15 +70,42 @@ class PreDataLoaderIter:
         return self.dataloader_iter.__next__()
 
 
+def f(device, nfeat, conn):
+    HtoD_stream = torch.cuda.Stream(device=device)
+
+    try:
+        while True:
+            input_nodes = conn.recv()
+            nfeat_slice = nfeat[input_nodes].pin_memory()
+
+            with torch.cuda.stream(HtoD_stream):
+                batch_inputs = nfeat_slice.to(device, non_blocking=True)
+
+            conn.send(batch_inputs)
+
+            del input_nodes
+            del nfeat_slice
+            del batch_inputs
+
+    except EOFError:
+        pass
+
+
 class PreDataLoader:
     def __init__(self, dataloader, num_epochs: int, device, nfeat, labels):
         self.HtoD_stream = torch.cuda.Stream(device=device)
-
         self.labels = labels
         self.nfeat = nfeat
         self.device = device
         self.dataloader = dataloader
         self.num_epochs = num_epochs
+
+        parent_conn, child_conn = mp.Pipe()
+        self.parent_conn = parent_conn
+
+        feat_slice_process = mp.Process(target=f, args=(device, nfeat, child_conn,))
+        feat_slice_process.start()
+
         self.prefetch_iter_executor = ThreadPoolExecutor(max_workers=num_epochs)
         self.queue = Queue()
         self.iter_count = 0
@@ -101,7 +125,8 @@ class PreDataLoader:
         for _ in range(self.num_epochs):
             self.prefetch_iter_executor.submit(
                 lambda: self.queue.put_nowait(
-                    PreDataLoaderIter(self.raw__iter__(), self.device, self.nfeat, self.labels, self.HtoD_stream)))
+                    PreDataLoaderIter(self.raw__iter__(), self.device, self.nfeat, self.labels, self.HtoD_stream,
+                                      self.parent_conn)))
 
     def raw__iter__(self):
         return self.dataloader.__iter__()
