@@ -42,7 +42,9 @@ class PreDataLoaderIter:
 
         input_nodes, seeds, blocks = v
 
+        nvtx.range_push("send")
         self.batch_inputs_conn.send(input_nodes)
+        nvtx.range_pop()
 
         with torch.cuda.stream(self.HtoD_stream):
             nvtx.range_push("dg")
@@ -71,21 +73,25 @@ class PreDataLoaderIter:
 
 
 def f(device, nfeat, conn):
-    HtoD_stream = torch.cuda.Stream(device=device)
-
     try:
         while True:
             input_nodes = conn.recv()
-            nfeat_slice = nfeat[input_nodes].pin_memory()
 
-            with torch.cuda.stream(HtoD_stream):
-                batch_inputs = nfeat_slice.to(device, non_blocking=True)
+            nvtx.range_push("dfs")
+            nfeat_slice = nfeat[input_nodes].pin_memory()
+            nvtx.range_pop()
+
+            nvtx.range_push("dft")
+            batch_inputs = nfeat_slice.to(device, non_blocking=True)
+            nvtx.range_pop()
 
             conn.send(batch_inputs)
 
+            nvtx.range_push("del")
             del input_nodes
             del nfeat_slice
             del batch_inputs
+            nvtx.range_pop()
 
     except EOFError:
         pass
