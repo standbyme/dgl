@@ -155,8 +155,15 @@ class CUDADeviceAPI final : public DeviceAPI {
       nvtxRangePop();
 
       nvtxRangePushA("ptg");
-      CUDA_CALL(cudaMemcpy(to, from_pinned, size, cudaMemcpyHostToDevice));
+      GPUCopy(from_pinned, to, size, cudaMemcpyHostToDevice, cu_stream);
       nvtxRangePop();
+
+      cudaEvent_t CopyDataFromTo_event;
+
+      CUDA_CALL(cudaEventCreate(&CopyDataFromTo_event));
+      CUDA_CALL(cudaEventRecord(CopyDataFromTo_event, cu_stream));
+      CUDA_CALL(cudaEventSynchronize(CopyDataFromTo_event));
+      CUDA_CALL(cudaEventDestroy(CopyDataFromTo_event));
 
       if(flag) {
           std::cout << "rf" << std::endl;
