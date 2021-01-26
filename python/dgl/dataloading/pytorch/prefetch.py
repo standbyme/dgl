@@ -73,6 +73,8 @@ class PreDataLoaderIter:
 
 
 def f(device, nfeat, conn):
+    HtoD_stream = torch.cuda.Stream(device=device)
+
     try:
         while True:
             input_nodes = conn.recv()
@@ -81,13 +83,14 @@ def f(device, nfeat, conn):
             nfeat_slice = nfeat[input_nodes]
             nvtx.range_pop()
 
-            nvtx.range_push("pin")
-            nfeat_slice_pin = nfeat_slice.pin_memory()
-            nvtx.range_pop()
+            with torch.cuda.stream(HtoD_stream):
+                nvtx.range_push("pin")
+                nfeat_slice_pin = nfeat_slice.pin_memory()
+                nvtx.range_pop()
 
-            nvtx.range_push("dft")
-            batch_inputs = nfeat_slice_pin.to(device, non_blocking=True)
-            nvtx.range_pop()
+                nvtx.range_push("dft")
+                batch_inputs = nfeat_slice_pin.to(device, non_blocking=True)
+                nvtx.range_pop()
 
             conn.send(batch_inputs)
 
