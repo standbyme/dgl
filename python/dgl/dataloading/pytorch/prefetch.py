@@ -46,10 +46,9 @@ class PreDataLoaderIter:
         self.batch_inputs_conn.send(input_nodes)
         nvtx.range_pop()
 
-        with torch.cuda.stream(self.HtoD_stream):
-            nvtx.range_push("dg")
-            blocks = [blk.to(self.device, non_blocking=True) for blk in blocks]
-            nvtx.range_pop()
+        nvtx.range_push("dg")
+        blocks = [blk.to(self.device) for blk in blocks]
+        nvtx.range_pop()
 
         nvtx.range_push("dl")
         batch_labels = self.labels[seeds]
