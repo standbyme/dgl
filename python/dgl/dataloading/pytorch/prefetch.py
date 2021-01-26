@@ -78,11 +78,15 @@ def f(device, nfeat, conn):
             input_nodes = conn.recv()
 
             nvtx.range_push("dfs")
-            nfeat_slice = nfeat[input_nodes].pin_memory()
+            nfeat_slice = nfeat[input_nodes]
+            nvtx.range_pop()
+
+            nvtx.range_push("pin")
+            nfeat_slice_pin = nfeat_slice.pin_memory()
             nvtx.range_pop()
 
             nvtx.range_push("dft")
-            batch_inputs = nfeat_slice.to(device, non_blocking=True)
+            batch_inputs = nfeat_slice_pin.to(device, non_blocking=True)
             nvtx.range_pop()
 
             conn.send(batch_inputs)
@@ -90,6 +94,7 @@ def f(device, nfeat, conn):
             nvtx.range_push("del")
             del input_nodes
             del nfeat_slice
+            del nfeat_slice_pin
             del batch_inputs
             nvtx.range_pop()
 
