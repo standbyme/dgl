@@ -10,26 +10,27 @@ import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
 
+from torch.cuda import nvtx
 
-class GAT(nn.Module):
+class SAGE(nn.Module):
     def __init__(self,
                  in_feats,
                  n_hidden,
                  n_classes,
                  n_layers,
-                 num_heads,
-                 activation):
+                 activation,
+                 dropout):
         super().__init__()
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.n_classes = n_classes
         self.layers = nn.ModuleList()
-        self.layers.append(dglnn.GATConv((in_feats, in_feats), n_hidden, num_heads=num_heads, activation=activation))
+        self.layers.append(dglnn.SAGEConv(in_feats, n_hidden, 'mean'))
         for i in range(1, n_layers - 1):
-            self.layers.append(dglnn.GATConv((n_hidden * num_heads, n_hidden * num_heads), n_hidden,
-                                             num_heads=num_heads, activation=activation))
-        self.layers.append(dglnn.GATConv((n_hidden * num_heads, n_hidden * num_heads), n_classes,
-                                         num_heads=num_heads, activation=None))
+            self.layers.append(dglnn.SAGEConv(n_hidden, n_hidden, 'mean'))
+        self.layers.append(dglnn.SAGEConv(n_hidden, n_classes, 'mean'))
+        self.dropout = nn.Dropout(dropout)
+        self.activation = activation
 
     def forward(self, blocks, x):
         h = x
@@ -41,16 +42,15 @@ class GAT(nn.Module):
             h_dst = h[:block.num_dst_nodes()]
             # Then we compute the updated representation on the RHS.
             # The shape of h now becomes (num_nodes_RHS, D)
-            if l < self.n_layers - 1:
-                h = layer(block, (h, h_dst)).flatten(1)
-            else:
-                h = layer(block, (h, h_dst))
-        h = h.mean(1)
-        return h.log_softmax(dim=-1)
+            h = layer(block, (h, h_dst))
+            if l != len(self.layers) - 1:
+                h = self.activation(h)
+                h = self.dropout(h)
+        return h
 
-    def inference(self, g, x, num_heads, device):
+    def inference(self, g, x, device):
         """
-        Inference with the GAT model on full neighbors (i.e. without neighbor sampling).
+        Inference with the GraphSAGE model on full neighbors (i.e. without neighbor sampling).
         g : the entire graph.
         x : the input of entire node set.
         The inference code is written in a fashion that it could handle any number of nodes and
@@ -62,10 +62,7 @@ class GAT(nn.Module):
         # on each layer are of course splitted in batches.
         # TODO: can we standardize this?
         for l, layer in enumerate(self.layers):
-            if l < self.n_layers - 1:
-                y = th.zeros(g.num_nodes(), self.n_hidden * num_heads if l != len(self.layers) - 1 else self.n_classes)
-            else:
-                y = th.zeros(g.num_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.n_classes)
+            y = th.zeros(g.num_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.n_classes).to(device)
 
             sampler = dgl.dataloading.MultiLayerFullNeighborSampler(1)
             dataloader = dgl.dataloading.NodeDataLoader(
@@ -80,19 +77,17 @@ class GAT(nn.Module):
             for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
                 block = blocks[0].int().to(device)
 
-                h = x[input_nodes].to(device)
+                h = x[input_nodes]
                 h_dst = h[:block.num_dst_nodes()]
-                if l < self.n_layers - 1:
-                    h = layer(block, (h, h_dst)).flatten(1) 
-                else:
-                    h = layer(block, (h, h_dst))
-                    h = h.mean(1)
-                    h = h.log_softmax(dim=-1)
+                h = layer(block, (h, h_dst))
+                if l != len(self.layers) - 1:
+                    h = self.activation(h)
+                    h = self.dropout(h)
 
-                y[output_nodes] = h.cpu()
+                y[output_nodes] = h
 
             x = y
-        return y.to(device)
+        return y
 
 def compute_acc(pred, labels):
     """
@@ -100,19 +95,18 @@ def compute_acc(pred, labels):
     """
     return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
 
-def evaluate(model, g, nfeat, labels, val_nid, test_nid, num_heads, device):
+def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     """
     Evaluate the model on the validation set specified by ``val_mask``.
     g : The entire graph.
     inputs : The features of all the nodes.
     labels : The labels of all the nodes.
     val_mask : A 0-1 mask indicating which nodes do we actually compute the accuracy for.
-    batch_size : Number of nodes to compute at the same time.
     device : The GPU device to evaluate on.
     """
     model.eval()
     with th.no_grad():
-        pred = model.inference(g, nfeat, num_heads, device)
+        pred = model.inference(g, nfeat, device)
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid]), pred
 
@@ -120,14 +114,32 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = nfeat[input_nodes].to(device)
+    nvtx.range_push("df")
+
+    nvtx.range_push("dfs")
+    nfeat_slice = nfeat[input_nodes]
+    nvtx.range_pop()  # dfs
+
+    nvtx.range_push("dft")
+    batch_inputs = nfeat_slice.to(device)
+    nvtx.range_pop()  # dft
+
+    nvtx.range_push("del")
+    del nfeat_slice
+    nvtx.range_pop()  # del
+
+    nvtx.range_pop()  # df
+
+    nvtx.range_push("dl")
     batch_labels = labels[seeds]
+    nvtx.range_pop()  # dl
+
     return batch_inputs, batch_labels
 
 #### Entry point
 def run(args, device, data):
     # Unpack data
-    train_nid, val_nid, test_nid, in_feats, labels, n_classes, nfeat, g, num_heads = data
+    train_nid, val_nid, test_nid, in_feats, labels, n_classes, nfeat, g = data
 
     # Create PyTorch DataLoader for constructing blocks
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
@@ -136,14 +148,16 @@ def run(args, device, data):
         g,
         train_nid,
         sampler,
+        block_transform=lambda x: x.int(),
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
         num_workers=args.num_workers)
 
     # Define model and optimizer
-    model = GAT(in_feats, args.num_hidden, n_classes, args.num_layers, num_heads, F.relu)
+    model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
+    loss_fcn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
     # Training loop
@@ -152,6 +166,7 @@ def run(args, device, data):
     best_eval_acc = 0
     best_test_acc = 0
     for epoch in range(args.num_epochs):
+        nvtx.range_push("e")
         tic = time.time()
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
@@ -159,18 +174,26 @@ def run(args, device, data):
         for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
             tic_step = time.time()
 
+            nvtx.range_push("d")
+
             # copy block to gpu
+            nvtx.range_push("dg")
             blocks = [blk.to(device) for blk in blocks]
+            nvtx.range_pop()  # dg
 
             # Load the input features as well as output labels
             batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
 
+            nvtx.range_pop()  # d
+
+            nvtx.range_push("c")
             # Compute loss and prediction
             batch_pred = model(blocks, batch_inputs)
-            loss = F.nll_loss(batch_pred, batch_labels)
+            loss = loss_fcn(batch_pred, batch_labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            nvtx.range_pop()  # c
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
             if args.log and step % args.log_every == 0:
@@ -180,10 +203,11 @@ def run(args, device, data):
                     epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
 
         toc = time.time()
+        nvtx.range_pop()  # e
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
         avg += toc - tic
         if args.eval and epoch % args.eval_every == 0 and epoch != 0:
-            eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, num_heads, device)
+            eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, device)
             if args.save_pred:
                 np.savetxt(args.save_pred + '%02d' % epoch, pred.argmax(1).cpu().numpy(), '%d')
             print('Eval Acc {:.4f}'.format(eval_acc))
@@ -200,49 +224,44 @@ if __name__ == '__main__':
     argparser.add_argument('--gpu', type=int, default=0,
         help="GPU device ID. Use -1 for CPU training")
     argparser.add_argument('--num-times', type=int, default=10)
-    argparser.add_argument('--num-epochs', type=int, default=100)
-    argparser.add_argument('--num-hidden', type=int, default=128)
+    argparser.add_argument('--num-epochs', type=int, default=20)
+    argparser.add_argument('--num-hidden', type=int, default=256)
     argparser.add_argument('--num-layers', type=int, default=3)
-    argparser.add_argument('--fan-out', type=str, default='10,10,10')
-    argparser.add_argument('--batch-size', type=int, default=512)
-    argparser.add_argument('--val-batch-size', type=int, default=512)
+    argparser.add_argument('--fan-out', type=str, default='5,10,15')
+    argparser.add_argument('--batch-size', type=int, default=1000)
+    argparser.add_argument('--val-batch-size', type=int, default=10000)
     argparser.add_argument("--log", action='store_true', default=False)
     argparser.add_argument('--log-every', type=int, default=20)
     argparser.add_argument("--eval", action='store_true', default=False)
     argparser.add_argument('--eval-every', type=int, default=1)
-    argparser.add_argument('--lr', type=float, default=0.001)
-    argparser.add_argument('--num-workers', type=int, default=8,
+    argparser.add_argument('--lr', type=float, default=0.003)
+    argparser.add_argument('--dropout', type=float, default=0.5)
+    argparser.add_argument('--num-workers', type=int, default=4,
         help="Number of sampling processes. Use 0 for no extra process.")
     argparser.add_argument('--save-pred', type=str, default='')
-    argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
     args = argparser.parse_args()
-    
+
     if args.gpu >= 0:
         device = th.device('cuda:%d' % args.gpu)
     else:
         device = th.device('cpu')
 
-    # load data
-    data = DglNodePropPredDataset(name='ogbn-products')
+    # load ogbn-arxiv data
+    data = DglNodePropPredDataset(name='ogbn-arxiv')
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
     graph, labels = data[0]
     nfeat = graph.ndata.pop('feat')
     labels = labels[:, 0].to(device)
 
-    print('Total edges before adding self-loop {}'.format(graph.num_edges()))
-    graph = graph.remove_self_loop().add_self_loop()
-    print('Total edges after adding self-loop {}'.format(graph.num_edges()))
-
     in_feats = nfeat.shape[1]
     n_classes = (labels.max() + 1).item()
-
     # Create csr/coo/csc formats before launching sampling processes
     # This avoids creating certain formats in each data loader process, which saves momory and CPU.
     graph.create_formats_()
     # Pack data
-    data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph, args.head
+    data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
 
     # Run 10 times
     test_accs = []
