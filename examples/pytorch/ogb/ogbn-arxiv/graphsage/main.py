@@ -12,6 +12,7 @@ from dgl.dataloading.pytorch.prefetch import PreDataLoader
 from ogb.nodeproppred import DglNodePropPredDataset
 
 from torch.cuda import nvtx
+from torch import multiprocessing as mp
 
 class SAGE(nn.Module):
     def __init__(self,
@@ -154,7 +155,7 @@ def run(args, device, data):
         shuffle=True,
         drop_last=False,
         num_workers=args.num_workers)
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs)
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels)
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -172,20 +173,8 @@ def run(args, device, data):
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (input_nodes, seeds, blocks) in enumerate(pre_dataloader):
+        for step, (blocks, batch_inputs, batch_labels, seeds_length) in enumerate(pre_dataloader):
             tic_step = time.time()
-
-            nvtx.range_push("d")
-
-            # copy block to gpu
-            nvtx.range_push("dg")
-            blocks = [blk.to(device) for blk in blocks]
-            nvtx.range_pop()  # dg
-
-            # Load the input features as well as output labels
-            batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
-
-            nvtx.range_pop()  # d
 
             nvtx.range_push("c")
             # Compute loss and prediction
@@ -196,7 +185,7 @@ def run(args, device, data):
             optimizer.step()
             nvtx.range_pop()  # c
 
-            iter_tput.append(len(seeds) / (time.time() - tic_step))
+            iter_tput.append(seeds_length / (time.time() - tic_step))
             if args.log and step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
@@ -221,6 +210,8 @@ def run(args, device, data):
     return best_test_acc
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn')
+
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
         help="GPU device ID. Use -1 for CPU training")
