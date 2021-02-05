@@ -8,11 +8,11 @@ import dgl.nn.pytorch as dglnn
 import time
 import argparse
 import tqdm
-from dgl.dataloading.pytorch.prefetch import PreDataLoader
+from dgl.dataloading.pytorch.prefetch import PreDataLoader, init_feat_slice_process
 from ogb.nodeproppred import DglNodePropPredDataset
 
 from torch.cuda import nvtx
-from torch import multiprocessing as mp
+
 
 class SAGE(nn.Module):
     def __init__(self,
@@ -154,8 +154,10 @@ def run(args, device, data):
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
+        prefetch_factor=2,
         num_workers=args.num_workers)
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels)
+    feat_slice_process, feat_slice_process_parent_conn = init_feat_slice_process(device, nfeat)
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels, feat_slice_process_parent_conn)
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -207,11 +209,11 @@ def run(args, device, data):
             print('Best Eval Acc {:.4f} Test Acc {:.4f}'.format(best_eval_acc, best_test_acc))
 
     print('Avg epoch time: {}'.format(avg / args.num_epochs))
+
+    feat_slice_process_parent_conn.close()
     return best_test_acc
 
 if __name__ == '__main__':
-    mp.set_start_method('spawn')
-
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
         help="GPU device ID. Use -1 for CPU training")
