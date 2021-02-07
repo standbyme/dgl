@@ -150,14 +150,14 @@ def run(args, device, data):
         g,
         train_nid,
         sampler,
-        block_transform=lambda x: x.int(),
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
-        prefetch_factor=2,
+        prefetch_factor=4,
         num_workers=args.num_workers)
     feat_slice_process, feat_slice_process_parent_conn = init_feat_slice_process(device, nfeat)
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels, feat_slice_process_parent_conn)
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels, feat_slice_process_parent_conn,
+                                   block_transform=lambda x: x.int())
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -197,7 +197,8 @@ def run(args, device, data):
         toc = time.time()
         nvtx.range_pop()  # e
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
-        avg += toc - tic
+        if epoch > 1:
+            avg += toc - tic
         if args.eval and epoch % args.eval_every == 0 and epoch != 0:
             eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, device)
             if args.save_pred:
@@ -208,7 +209,7 @@ def run(args, device, data):
                 best_test_acc = test_acc
             print('Best Eval Acc {:.4f} Test Acc {:.4f}'.format(best_eval_acc, best_test_acc))
 
-    print('Avg epoch time: {}'.format(avg / args.num_epochs))
+    print('Avg epoch time: {}'.format(avg / (args.num_epochs-2)))
 
     feat_slice_process_parent_conn.close()
     return best_test_acc

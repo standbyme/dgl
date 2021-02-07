@@ -167,11 +167,6 @@ class _NodeDataLoaderIter:
 
         _restore_blocks_storage(result_[-1], self.node_dataloader.collator.g)
 
-        if self.node_dataloader.block_transform:
-            input_nodes, output_nodes, blocks = result_
-            blocks = list(map(self.node_dataloader.block_transform, blocks))
-            result_ = (input_nodes, output_nodes, blocks)
-
         result = []
         for data in result_:
             result.append(_to_device(data, self.device))
@@ -231,8 +226,7 @@ class NodeDataLoader:
     """
     collator_arglist = inspect.getfullargspec(NodeCollator).args
 
-    def __init__(self, g, nids, block_sampler, device='cpu', block_transform=None, **kwargs):
-        self.block_transform = block_transform
+    def __init__(self, g, nids, block_sampler, device='cpu', **kwargs):
         collator_kwargs = {}
         dataloader_kwargs = {}
         for k, v in kwargs.items():
