@@ -91,11 +91,13 @@ class SAGE(nn.Module):
             x = y
         return y
 
+
 def compute_acc(pred, labels):
     """
     Compute the accuracy of prediction given the labels.
     """
     return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
+
 
 def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     """
@@ -111,6 +113,7 @@ def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
         pred = model.inference(g, nfeat, device)
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid]), pred
+
 
 def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
@@ -138,6 +141,7 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
 
     return batch_inputs, batch_labels
 
+
 #### Entry point
 def run(args, device, data):
     # Unpack data
@@ -150,14 +154,14 @@ def run(args, device, data):
         g,
         train_nid,
         sampler,
-        block_transform=lambda x: x.int(),
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
         prefetch_factor=2,
         num_workers=args.num_workers)
     feat_slice_process, feat_slice_process_parent_conn = init_feat_slice_process(device, nfeat)
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels, feat_slice_process_parent_conn)
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, device, nfeat, labels, feat_slice_process_parent_conn,
+                                   block_transform=lambda x: x.int())
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -191,8 +195,9 @@ def run(args, device, data):
             if args.log and step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
-                print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
-                    epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
+                print(
+                    'Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
+                        epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
 
         toc = time.time()
         nvtx.range_pop()  # e
@@ -213,10 +218,11 @@ def run(args, device, data):
     feat_slice_process_parent_conn.close()
     return best_test_acc
 
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
-        help="GPU device ID. Use -1 for CPU training")
+                           help="GPU device ID. Use -1 for CPU training")
     argparser.add_argument('--num-times', type=int, default=10)
     argparser.add_argument('--num-epochs', type=int, default=20)
     argparser.add_argument('--num-hidden', type=int, default=256)
@@ -231,7 +237,7 @@ if __name__ == '__main__':
     argparser.add_argument('--lr', type=float, default=0.003)
     argparser.add_argument('--dropout', type=float, default=0.5)
     argparser.add_argument('--num-workers', type=int, default=4,
-        help="Number of sampling processes. Use 0 for no extra process.")
+                           help="Number of sampling processes. Use 0 for no extra process.")
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--wd', type=float, default=0)
     args = argparser.parse_args()
