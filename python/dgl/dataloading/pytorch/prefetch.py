@@ -32,16 +32,9 @@ class PreDataLoaderIter:
             try:
                 while True:
                     v = self.raw__next__()
-                    input_nodes, _, _ = v
-
                     self.queue.put(v)
-
-                    nvtx.range_push("send")
-                    self.batch_inputs_conn.send(input_nodes.to(self.device))
-                    nvtx.range_pop()
-
             except StopIteration:
-                self.queue.put_nowait(None)
+                self.queue.put(None)
 
         self.prefetch_next_executor.submit(sample_f)
 
@@ -67,6 +60,10 @@ class PreDataLoaderIter:
             return None
 
         input_nodes, seeds, blocks = v
+
+        nvtx.range_push("send")
+        self.batch_inputs_conn.send(input_nodes.to(self.device))
+        nvtx.range_pop()
 
         if self.block_transform:
             blocks = list(map(self.block_transform, blocks))
@@ -193,17 +190,10 @@ class PreDataLoader:
         if self.dataloader.is_distributed:
             return self.raw__iter__()
         else:
-            if self.next_iter is None:
-                pre_data_loader_iter = PreDataLoaderIter(self.raw__iter__(), self.device, self.nfeat, self.labels,
-                                                         self.HtoD_stream, self.feat_slice_process_parent_conn,
-                                                         self.block_transform)
-            else:
-                pre_data_loader_iter = self.next_iter
+            pre_data_loader_iter = PreDataLoaderIter(self.raw__iter__(), self.device, self.nfeat, self.labels,
+                                                     self.HtoD_stream, self.feat_slice_process_parent_conn,
+                                                     self.block_transform)
 
-            if self.iter_count < self.num_epochs:
-                self.next_iter = PreDataLoaderIter(self.raw__iter__(), self.device, self.nfeat, self.labels,
-                                                   self.HtoD_stream, self.feat_slice_process_parent_conn,
-                                                   self.block_transform)
             return pre_data_loader_iter
 
     def raw__iter__(self):
