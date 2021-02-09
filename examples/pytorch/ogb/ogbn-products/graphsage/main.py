@@ -10,6 +10,7 @@ import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
 
+from torch.cuda import nvtx
 
 class SAGE(nn.Module):
     def __init__(self,
@@ -150,6 +151,7 @@ def run(args, device, data):
     best_eval_acc = 0
     best_test_acc = 0
     for epoch in range(args.num_epochs):
+        nvtx.range_push("e")
         tic = time.time()
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
@@ -163,12 +165,14 @@ def run(args, device, data):
             # Load the input features as well as output labels
             batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
 
+            nvtx.range_push("c")
             # Compute loss and prediction
             batch_pred = model(blocks, batch_inputs)
             loss = loss_fcn(batch_pred, batch_labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            nvtx.range_pop()  # c
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
             if args.log and step % args.log_every == 0:
@@ -179,6 +183,7 @@ def run(args, device, data):
                         epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
 
         toc = time.time()
+        nvtx.range_pop()  # e
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
         if epoch >= 2:
             avg += toc - tic
