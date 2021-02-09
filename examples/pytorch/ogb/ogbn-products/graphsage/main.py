@@ -10,6 +10,7 @@ import argparse
 import tqdm
 from ogb.nodeproppred import DglNodePropPredDataset
 
+
 class SAGE(nn.Module):
     def __init__(self,
                  in_feats,
@@ -87,11 +88,13 @@ class SAGE(nn.Module):
             x = y
         return y
 
+
 def compute_acc(pred, labels):
     """
     Compute the accuracy of prediction given the labels.
     """
     return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
+
 
 def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     """
@@ -108,6 +111,7 @@ def evaluate(model, g, nfeat, labels, val_nid, test_nid, device):
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid]), compute_acc(pred[test_nid], labels[test_nid]), pred
 
+
 def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
@@ -115,6 +119,7 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     batch_inputs = nfeat[input_nodes]
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
+
 
 #### Entry point
 def run(args, device, data):
@@ -166,17 +171,18 @@ def run(args, device, data):
             optimizer.step()
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
-            if step % args.log_every == 0:
+            if args.log and step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
-                print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
-                    epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
+                print(
+                    'Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
+                        epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
 
         toc = time.time()
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
-        if epoch >= 5:
+        if epoch >= 2:
             avg += toc - tic
-        if epoch % args.eval_every == 0 and epoch != 0:
+        if args.eval and epoch % args.eval_every == 0 and epoch != 0:
             eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, device)
             if args.save_pred:
                 np.savetxt(args.save_pred + '%02d' % epoch, pred.argmax(1).cpu().numpy(), '%d')
@@ -186,29 +192,33 @@ def run(args, device, data):
                 best_test_acc = test_acc
             print('Best Eval Acc {:.4f} Test Acc {:.4f}'.format(best_eval_acc, best_test_acc))
 
-    print('Avg epoch time: {}'.format(avg / (epoch - 4)))
+    print('Avg epoch time: {}'.format(avg / (epoch - 1)))
     return best_test_acc
+
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
-        help="GPU device ID. Use -1 for CPU training")
+                           help="GPU device ID. Use -1 for CPU training")
+    argparser.add_argument('--num-times', type=int, default=10)
     argparser.add_argument('--num-epochs', type=int, default=20)
     argparser.add_argument('--num-hidden', type=int, default=256)
     argparser.add_argument('--num-layers', type=int, default=3)
     argparser.add_argument('--fan-out', type=str, default='5,10,15')
     argparser.add_argument('--batch-size', type=int, default=1000)
     argparser.add_argument('--val-batch-size', type=int, default=10000)
+    argparser.add_argument("--log", action='store_true', default=False)
     argparser.add_argument('--log-every', type=int, default=20)
+    argparser.add_argument("--eval", action='store_true', default=False)
     argparser.add_argument('--eval-every', type=int, default=1)
     argparser.add_argument('--lr', type=float, default=0.003)
     argparser.add_argument('--dropout', type=float, default=0.5)
     argparser.add_argument('--num-workers', type=int, default=4,
-        help="Number of sampling processes. Use 0 for no extra process.")
+                           help="Number of sampling processes. Use 0 for no extra process.")
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--wd', type=float, default=0)
     args = argparser.parse_args()
-    
+
     if args.gpu >= 0:
         device = th.device('cuda:%d' % args.gpu)
     else:
@@ -232,6 +242,6 @@ if __name__ == '__main__':
 
     # Run 10 times
     test_accs = []
-    for i in range(10):
+    for i in range(args.num_times):
         test_accs.append(run(args, device, data).cpu().numpy())
         print('Average test accuracy:', np.mean(test_accs), '±', np.std(test_accs))
