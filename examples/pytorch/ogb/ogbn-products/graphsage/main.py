@@ -117,7 +117,8 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = nfeat[input_nodes].to(device)
+    th.index_select(nfeat, 0, input_nodes, out=buffer)
+    batch_inputs = buffer.to(device)
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
 
@@ -244,6 +245,8 @@ if __name__ == '__main__':
     graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
+
+    buffer = th.empty(2500000, 100).pin_memory()
 
     # Run 10 times
     test_accs = []
