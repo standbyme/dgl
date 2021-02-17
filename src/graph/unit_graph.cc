@@ -149,10 +149,10 @@ class UnitGraph::COO : public BaseHeteroGraph {
     return ret;
   }
 
-  COO CopyTo(const DLContext& ctx) const {
+  COO CopyTo(const DLContext& ctx, DGLStreamHandle stream) const {
     if (Context() == ctx)
       return *this;
-    return COO(meta_graph_, adj_.CopyTo(ctx));
+    return COO(meta_graph_, adj_.CopyTo(ctx, stream));
   }
 
   bool IsMultigraph() const override {
@@ -535,11 +535,11 @@ class UnitGraph::CSR : public BaseHeteroGraph {
     }
   }
 
-  CSR CopyTo(const DLContext& ctx) const {
+  CSR CopyTo(const DLContext& ctx, DGLStreamHandle stream) const {
     if (Context() == ctx) {
       return *this;
     } else {
-      return CSR(meta_graph_, adj_.CopyTo(ctx));
+      return CSR(meta_graph_, adj_.CopyTo(ctx, stream));
     }
   }
 
@@ -1230,18 +1230,18 @@ HeteroGraphPtr UnitGraph::AsNumBits(HeteroGraphPtr g, uint8_t bits) {
   }
 }
 
-HeteroGraphPtr UnitGraph::CopyTo(HeteroGraphPtr g, const DLContext& ctx) {
+HeteroGraphPtr UnitGraph::CopyTo(HeteroGraphPtr g, const DLContext& ctx, DGLStreamHandle stream) {
   if (ctx == g->Context()) {
     return g;
   } else {
     auto bg = std::dynamic_pointer_cast<UnitGraph>(g);
     CHECK_NOTNULL(bg);
     CSRPtr new_incsr =
-      (bg->in_csr_->defined())? CSRPtr(new CSR(bg->in_csr_->CopyTo(ctx))) : nullptr;
+      (bg->in_csr_->defined())? CSRPtr(new CSR(bg->in_csr_->CopyTo(ctx, stream))) : nullptr;
     CSRPtr new_outcsr =
-      (bg->out_csr_->defined())? CSRPtr(new CSR(bg->out_csr_->CopyTo(ctx))) : nullptr;
+      (bg->out_csr_->defined())? CSRPtr(new CSR(bg->out_csr_->CopyTo(ctx, stream))) : nullptr;
     COOPtr new_coo =
-      (bg->coo_->defined())? COOPtr(new COO(bg->coo_->CopyTo(ctx))) : nullptr;
+      (bg->coo_->defined())? COOPtr(new COO(bg->coo_->CopyTo(ctx, stream))) : nullptr;
     return HeteroGraphPtr(
         new UnitGraph(g->meta_graph(), new_incsr, new_outcsr, new_coo, bg->formats_));
   }

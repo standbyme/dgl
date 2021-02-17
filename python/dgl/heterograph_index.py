@@ -1,9 +1,11 @@
 """Module for heterogeneous graph index class definition."""
 from __future__ import absolute_import
 
+import ctypes
 import itertools
 import numpy as np
 import scipy
+import torch
 
 from ._ffi.object import register_object, ObjectBase
 from ._ffi.function import _init_api
@@ -232,7 +234,9 @@ class HeteroGraphIndex(ObjectBase):
         HeteroGraphIndex
             The graph index on the given device context.
         """
-        return _CAPI_DGLHeteroCopyTo(self, ctx.device_type, ctx.device_id)
+        stream = torch.cuda.current_stream()
+        stream_ptr = ctypes.c_void_p(stream.cuda_stream)
+        return _CAPI_DGLHeteroCopyTo(self, ctx.device_type, ctx.device_id, stream_ptr)
 
     def shared_memory(self, name, ntypes=None, etypes=None, formats=('coo', 'csr', 'csc')):
         """Return a copy of this graph in shared memory
