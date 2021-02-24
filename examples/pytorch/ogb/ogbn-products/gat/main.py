@@ -8,8 +8,10 @@ import dgl.nn.pytorch as dglnn
 import time
 import argparse
 import tqdm
+from dgl.dataloading.pytorch.prefetch import PreDataLoader, CommonArg
 from ogb.nodeproppred import DglNodePropPredDataset
 
+from torch.cuda import nvtx
 
 class GAT(nn.Module):
     def __init__(self,
@@ -120,7 +122,8 @@ def load_subtensor(nfeat, labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = nfeat[input_nodes]
+    th.index_select(nfeat, 0, input_nodes, out=buffer)
+    batch_inputs = buffer.to(device)
     batch_labels = labels[seeds]
     return batch_inputs, batch_labels
 
@@ -141,6 +144,7 @@ def run(args, device, data):
         drop_last=False,
         num_workers=args.num_workers)
 
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(nfeat))
     # Define model and optimizer
     model = GAT(in_feats, args.num_hidden, n_classes, args.num_layers, num_heads, F.relu)
     model = model.to(device)
@@ -152,11 +156,12 @@ def run(args, device, data):
     best_eval_acc = 0
     best_test_acc = 0
     for epoch in range(args.num_epochs):
+        nvtx.range_push("e")
         tic = time.time()
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+        for step, (input_nodes, seeds, blocks) in enumerate(pre_dataloader):
             tic_step = time.time()
 
             # copy block to gpu
@@ -165,25 +170,28 @@ def run(args, device, data):
             # Load the input features as well as output labels
             batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
 
+            nvtx.range_push("c")
             # Compute loss and prediction
             batch_pred = model(blocks, batch_inputs)
             loss = F.nll_loss(batch_pred, batch_labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            nvtx.range_pop()  # c
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
-            if step % args.log_every == 0:
+            if args.log and step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
                 print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
                     epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
 
         toc = time.time()
+        nvtx.range_pop()  # e
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
-        if epoch >= 5:
+        if epoch >= 2:
             avg += toc - tic
-        if epoch % args.eval_every == 0 and epoch != 0:
+        if args.eval and epoch % args.eval_every == 0 and epoch != 0:
             eval_acc, test_acc, pred = evaluate(model, g, nfeat, labels, val_nid, test_nid, num_heads, device)
             if args.save_pred:
                 np.savetxt(args.save_pred + '%02d' % epoch, pred.argmax(1).cpu().numpy(), '%d')
@@ -193,20 +201,23 @@ def run(args, device, data):
                 best_test_acc = test_acc
             print('Best Eval Acc {:.4f} Test Acc {:.4f}'.format(best_eval_acc, best_test_acc))
 
-    print('Avg epoch time: {}'.format(avg / (epoch - 4)))
+    print('Avg epoch time: {}'.format(avg / (epoch - 1)))
     return best_test_acc
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
         help="GPU device ID. Use -1 for CPU training")
+    argparser.add_argument('--num-times', type=int, default=10)
     argparser.add_argument('--num-epochs', type=int, default=100)
     argparser.add_argument('--num-hidden', type=int, default=128)
     argparser.add_argument('--num-layers', type=int, default=3)
     argparser.add_argument('--fan-out', type=str, default='10,10,10')
     argparser.add_argument('--batch-size', type=int, default=512)
     argparser.add_argument('--val-batch-size', type=int, default=512)
+    argparser.add_argument("--log", action='store_true', default=False)
     argparser.add_argument('--log-every', type=int, default=20)
+    argparser.add_argument("--eval", action='store_true', default=False)
     argparser.add_argument('--eval-every', type=int, default=1)
     argparser.add_argument('--lr', type=float, default=0.001)
     argparser.add_argument('--num-workers', type=int, default=8,
@@ -226,7 +237,7 @@ if __name__ == '__main__':
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
     graph, labels = data[0]
-    nfeat = graph.ndata.pop('feat').to(device)
+    nfeat = graph.ndata.pop('feat')
     labels = labels[:, 0].to(device)
 
     print('Total edges before adding self-loop {}'.format(graph.num_edges()))
@@ -242,8 +253,10 @@ if __name__ == '__main__':
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph, args.head
 
+    buffer = th.empty(2500000, 100).pin_memory()
+
     # Run 10 times
     test_accs = []
-    for i in range(10):
+    for i in range(args.num_times):
         test_accs.append(run(args, device, data).cpu().numpy())
         print('Average test accuracy:', np.mean(test_accs), '±', np.std(test_accs))
