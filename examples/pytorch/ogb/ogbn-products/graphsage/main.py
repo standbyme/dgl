@@ -141,7 +141,7 @@ def run(args, device, data):
         drop_last=False,
         num_workers=args.num_workers)
 
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(nfeat))
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(device, nfeat, labels, lambda x: x.int()))
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -159,14 +159,8 @@ def run(args, device, data):
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (input_nodes, seeds, blocks) in enumerate(pre_dataloader):
+        for step, (blocks, batch_inputs, batch_labels, seeds_length) in enumerate(pre_dataloader):
             tic_step = time.time()
-
-            # copy block to gpu
-            blocks = [blk.int().to(device) for blk in blocks]
-
-            # Load the input features as well as output labels
-            batch_inputs, batch_labels = load_subtensor(nfeat, labels, seeds, input_nodes)
 
             nvtx.range_push("c")
             # Compute loss and prediction
@@ -177,7 +171,7 @@ def run(args, device, data):
             optimizer.step()
             nvtx.range_pop()  # c
 
-            iter_tput.append(len(seeds) / (time.time() - tic_step))
+            iter_tput.append(seeds_length / (time.time() - tic_step))
             if args.log and step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
@@ -247,8 +241,6 @@ if __name__ == '__main__':
     graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
-
-    buffer = th.empty(2500000, 100).pin_memory()
 
     # Run 10 times
     test_accs = []
