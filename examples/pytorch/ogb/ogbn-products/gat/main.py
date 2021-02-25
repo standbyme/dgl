@@ -144,7 +144,7 @@ def run(args, device, data):
         drop_last=False,
         num_workers=args.num_workers)
 
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(nfeat))
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(args.free_every, nfeat))
     # Define model and optimizer
     model = GAT(in_feats, args.num_hidden, n_classes, args.num_layers, num_heads, F.relu)
     model = model.to(device)
@@ -225,6 +225,7 @@ if __name__ == '__main__':
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
+    argparser.add_argument('--free-every', type=int, default=10)
     args = argparser.parse_args()
     
     if args.gpu >= 0:
