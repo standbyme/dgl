@@ -12,6 +12,9 @@
 
 #include "nvToolsExt.h"
 
+#include <thread>
+#include "memory_pool.h"
+
 namespace dgl {
 namespace runtime {
 
@@ -19,9 +22,15 @@ class CUDADeviceAPI final : public DeviceAPI {
  void* buffer_pinned{};
  const size_t max_size{20000000};
 
+ std::shared_ptr<MemoryPool> memoryPool = std::make_shared<MemoryPool>();
+ std::mutex mtx;
  public:
   CUDADeviceAPI() {
     CUDA_CALL(cudaMallocHost((void **) &buffer_pinned, max_size));
+  }
+  void MemoryPoolSyncFree() {
+    const std::lock_guard<std::mutex> lock(mtx);
+    memoryPool->sync_free();
   }
   void SetDevice(DGLContext ctx) final {
     CUDA_CALL(cudaSetDevice(ctx.device_id));
@@ -98,17 +107,18 @@ class CUDADeviceAPI final : public DeviceAPI {
                        size_t nbytes,
                        size_t alignment,
                        DGLType type_hint) final {
+    const std::lock_guard<std::mutex> lock(mtx);
     CUDA_CALL(cudaSetDevice(ctx.device_id));
     CHECK_EQ(256 % alignment, 0U)
         << "CUDA space is aligned at 256 bytes";
-    void *ret;
-    CUDA_CALL(cudaMalloc(&ret, nbytes));
+    void *ret = memoryPool->get(nbytes);
     return ret;
   }
 
   void FreeDataSpace(DGLContext ctx, void* ptr) final {
+    const std::lock_guard<std::mutex> lock(mtx);
     CUDA_CALL(cudaSetDevice(ctx.device_id));
-    CUDA_CALL(cudaFree(ptr));
+    memoryPool->back(ptr);
   }
 
   void CopyDataFromTo(const void* from,
@@ -248,6 +258,11 @@ DGL_REGISTER_GLOBAL("device_api.gpu")
     DeviceAPI* ptr = CUDADeviceAPI::Global().get();
     *rv = static_cast<void*>(ptr);
   });
+
+DGL_REGISTER_GLOBAL("utils.internal._CAPI_DGLMemoryPoolSyncFree")
+.set_body([] (DGLArgs args, DGLRetValue* rv) {
+  CUDADeviceAPI::Global()->MemoryPoolSyncFree();
+});
 
 }  // namespace runtime
 }  // namespace dgl

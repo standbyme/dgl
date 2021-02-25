@@ -897,6 +897,9 @@ def set_num_threads(num_threads):
     """
     _CAPI_DGLSetOMPThreads(num_threads)
 
+def memory_pool_sync_free():
+    _CAPI_DGLMemoryPoolSyncFree()
+
 def alias_func(func):
     """Return an alias function with proper docstring."""
     @wraps(func)

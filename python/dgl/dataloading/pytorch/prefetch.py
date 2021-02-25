@@ -4,12 +4,14 @@ from threading import Thread
 from typing import Callable
 
 import torch
+from dgl.utils.internal import memory_pool_sync_free
 from dgl.dataloading.pytorch.presample import PreSampleDataLoader
 from torch.cuda import nvtx
 
 
 @dataclass
 class CommonArg:
+    memory_pool_free_every: int
     device: torch.device
     nfeat: torch.Tensor
     labels: torch.Tensor
@@ -25,6 +27,7 @@ class PreDataLoaderIter:
     def __init__(self, dataloader_iter, common_arg: CommonArg):
         self.common_arg = common_arg
         self.dataloader_iter = dataloader_iter
+        self.count = 0
 
         self.is_finished = False
 
@@ -41,6 +44,10 @@ class PreDataLoaderIter:
             self.common_arg.slice_queue.put_nowait(v)
 
     def __next__(self):
+        self.count += 1
+        if self.count % self.common_arg.memory_pool_free_every == 0:
+            memory_pool_sync_free()
+
         self.fill_slice_queue()
 
         v = self.common_arg.compute_queue.get()

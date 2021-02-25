@@ -141,7 +141,7 @@ def run(args, device, data):
         drop_last=False,
         num_workers=args.num_workers)
 
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(device, nfeat, labels, lambda x: x.int()))
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(args.free_every, device, nfeat, labels, lambda x: x.int()))
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -219,6 +219,7 @@ if __name__ == '__main__':
                            help="Number of sampling processes. Use 0 for no extra process.")
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--wd', type=float, default=0)
+    argparser.add_argument('--free-every', type=int, default=10)
     args = argparser.parse_args()
 
     if args.gpu >= 0:
