@@ -16,6 +16,7 @@ namespace dgl {
 namespace runtime {
 
 class CUDADeviceAPI final : public DeviceAPI {
+ std::mutex buffer_pinned_mtx;
  void* buffer_pinned{};
  const size_t max_size{20000000};
 
@@ -136,6 +137,7 @@ class CUDADeviceAPI final : public DeviceAPI {
       CUDA_CALL(cudaSetDevice(ctx_from.device_id));
       GPUCopy(from, to, size, cudaMemcpyDeviceToHost, cu_stream);
     } else if (ctx_from.device_type == kDLCPU && ctx_to.device_type == kDLGPU) {
+      const std::lock_guard<std::mutex> lock(buffer_pinned_mtx);
       CUDA_CALL(cudaSetDevice(ctx_to.device_id));
       void* from_pinned;
       bool flag = false;
