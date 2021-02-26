@@ -224,6 +224,7 @@ if __name__ == '__main__':
                            help="Number of sampling processes. Use 0 for no extra process.")
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--wd', type=float, default=0)
+    argparser.add_argument('--dataset', type=str, required=True, choices=['arxiv', 'products', 'proteins', 'mag'])
     args = argparser.parse_args()
 
     if args.gpu >= 0:
@@ -232,7 +233,7 @@ if __name__ == '__main__':
         device = th.device('cpu')
 
     # load ogbn-products data
-    data = DglNodePropPredDataset(name='ogbn-products')
+    data = DglNodePropPredDataset(name=f'ogbn-{args.dataset}')
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
     graph, labels = data[0]
