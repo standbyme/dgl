@@ -226,6 +226,7 @@ if __name__ == '__main__':
     argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
     argparser.add_argument('--free-every', type=int, default=10)
+    argparser.add_argument('--dataset', type=str, required=True, choices=['arxiv', 'products', 'proteins', 'mag'])
     args = argparser.parse_args()
     
     if args.gpu >= 0:
@@ -234,7 +235,7 @@ if __name__ == '__main__':
         device = th.device('cpu')
 
     # load data
-    data = DglNodePropPredDataset(name='ogbn-products')
+    data = DglNodePropPredDataset(name=f'ogbn-{args.dataset}')
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
     graph, labels = data[0]
