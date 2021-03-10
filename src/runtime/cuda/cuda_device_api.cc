@@ -154,7 +154,7 @@ class CUDADeviceAPI final : public DeviceAPI {
 
       if(size<max_size) from_pinned = buffer_pinned;
       else {
-          std::cout << "reallocate pinned memory" << std::endl;
+          std::cerr << "reallocate pinned memory" << std::endl;
           flag = true;
           nvtxRangePushA("m");
           CUDA_CALL(cudaMallocHost((void**)&from_pinned, size));
@@ -172,7 +172,7 @@ class CUDADeviceAPI final : public DeviceAPI {
       CUDA_CALL(cudaStreamSynchronize(cu_stream));
 
       if(flag) {
-          std::cout << "free reallocated pinned memory" << std::endl;
+          std::cerr << "free reallocated pinned memory" << std::endl;
           nvtxRangePushA("f");
           CUDA_CALL(cudaFreeHost(from_pinned));
           nvtxRangePop();
