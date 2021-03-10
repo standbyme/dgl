@@ -226,7 +226,7 @@ if __name__ == '__main__':
     argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
     argparser.add_argument('--free-every', type=int, default=10)
-    argparser.add_argument('--dataset', type=str, required=True, choices=['arxiv', 'products', 'proteins', 'mag'])
+    argparser.add_argument('--dataset', type=str, required=True, choices=['arxiv', 'products', 'mag'])
     args = argparser.parse_args()
     
     if args.gpu >= 0:
@@ -238,7 +238,14 @@ if __name__ == '__main__':
     data = DglNodePropPredDataset(name=f'ogbn-{args.dataset}')
     splitted_idx = data.get_idx_split()
     train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
+    if args.dataset == "mag":
+        train_idx, val_idx, test_idx = train_idx['paper'], val_idx['paper'], test_idx['paper']
+
     graph, labels = data[0]
+    if args.dataset == "mag":
+        graph = dgl.edge_type_subgraph(graph, [('paper', 'cites', 'paper')])
+        labels = labels["paper"]
+
     nfeat = graph.ndata.pop('feat')
     labels = labels[:, 0].to(device)
 
