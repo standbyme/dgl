@@ -272,6 +272,10 @@ if __name__ == '__main__':
 
     train_idx, val_idx, test_idx, labels, nfeat, graph = load_data(args.dataset, device)
 
+    print('Total edges before adding self-loop {}'.format(graph.num_edges()))
+    graph = graph.remove_self_loop().add_self_loop()
+    print('Total edges after adding self-loop {}'.format(graph.num_edges()))
+
     in_feats = nfeat.shape[1]
     n_classes = (labels.max() + 1).item()
 
