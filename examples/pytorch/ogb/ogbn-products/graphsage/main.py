@@ -200,7 +200,7 @@ def run(args, device, data):
                 best_test_acc = test_acc
             print('Best Eval Acc {:.4f} Test Acc {:.4f}'.format(best_eval_acc, best_test_acc))
 
-    print('Avg epoch time: {}'.format(avg / (epoch - 1)))
+    print('Avg Throughput: {}'.format(np.mean(iter_tput[3:])))
     return best_test_acc
 
 
