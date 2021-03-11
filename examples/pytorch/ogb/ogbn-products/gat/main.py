@@ -225,7 +225,7 @@ def load_data(_dataset, _device):
         edge = th.load('./dataset/wikipedia_link_en/edge.pt').long()
         _u, _v = edge[0], edge[1]
         _graph = dgl.graph((_u, _v))
-        _nfeat = th.rand((_graph.num_nodes(), 100), dtype=th.float32)
+        _nfeat = th.rand((_graph.num_nodes(), 100), dtype=th.float32).to(device)
         _labels = th.randint(10, (_graph.num_nodes(),), device=_device, dtype=th.int64)
         _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
     else:
@@ -240,7 +240,7 @@ def load_data(_dataset, _device):
             _graph = dgl.edge_type_subgraph(_graph, [('paper', 'cites', 'paper')])
             _labels = _labels["paper"]
 
-        _nfeat = _graph.ndata.pop('feat')
+        _nfeat = _graph.ndata.pop('feat').to(device)
         _labels = _labels[:, 0].to(_device)
 
     return _train_idx, _val_idx, _test_idx, _labels, _nfeat, _graph
