@@ -8,13 +8,15 @@
 class MemoryBlock {
 private:
   const void *ptr = {};
-  bool is_free;
   bool marked_free;
+  std::shared_ptr<std::unordered_set<DGLStreamHandle>> track_streams;
+  std::vector<cudaEvent_t> events;
 
 public:
   const size_t nbytes;
 
-  explicit MemoryBlock(const size_t &nbytes) : is_free(true), marked_free(true), nbytes(nbytes) {
+  explicit MemoryBlock(const size_t &nbytes, std::shared_ptr<std::unordered_set<DGLStreamHandle>> track_streams)
+    : marked_free(true), track_streams(std::move(track_streams)), nbytes(nbytes) {
     CUDA_CALL(cudaMalloc((void **) &ptr, nbytes));
   }
 
@@ -22,11 +24,9 @@ public:
 
   void free();
 
-  void sync_free();
-
   void *lock();
 
-  bool isFree() const;
+  bool isFree();
 };
 
 struct Comp {
@@ -39,6 +39,8 @@ private:
   std::vector<std::shared_ptr<MemoryBlock>> all_vector;
   Comp comp;
   std::unordered_map<const void *, std::shared_ptr<MemoryBlock>> all_map;
+  std::shared_ptr<std::unordered_set<DGLStreamHandle>> track_streams =
+    std::make_shared<std::unordered_set<DGLStreamHandle>>();
 
 public:
 
@@ -46,7 +48,7 @@ public:
 
   void back(void *ret);
 
-  void sync_free();
+  void add_track_stream(DGLStreamHandle stream);
 };
 
 

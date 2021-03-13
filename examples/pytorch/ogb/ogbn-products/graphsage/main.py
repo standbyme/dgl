@@ -141,7 +141,7 @@ def run(args, device, data):
         drop_last=False,
         num_workers=args.num_workers)
 
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(args.free_every, nfeat))
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(nfeat))
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)

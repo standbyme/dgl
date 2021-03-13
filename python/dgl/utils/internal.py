@@ -1,6 +1,7 @@
 """Internal utilities."""
 from __future__ import absolute_import, division
 
+import ctypes
 from collections.abc import Mapping, Iterable
 from collections import defaultdict
 from functools import wraps
@@ -897,8 +898,9 @@ def set_num_threads(num_threads):
     """
     _CAPI_DGLSetOMPThreads(num_threads)
 
-def memory_pool_sync_free():
-    _CAPI_DGLMemoryPoolSyncFree()
+def memory_pool_add_track_stream(stream):
+    stream_ptr = ctypes.c_void_p(stream.cuda_stream)
+    _CAPI_DGLMemoryPoolAddTrackStream(stream_ptr)
 
 def alias_func(func):
     """Return an alias function with proper docstring."""

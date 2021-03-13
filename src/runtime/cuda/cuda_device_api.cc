@@ -20,9 +20,9 @@ class CUDADeviceAPI final : public DeviceAPI {
  std::shared_ptr<MemoryPool> memoryPool = std::make_shared<MemoryPool>();
  std::mutex mtx;
  public:
-  void MemoryPoolSyncFree() {
+  void MemoryPoolAddTrackStream(DGLStreamHandle stream) {
     const std::lock_guard<std::mutex> lock(mtx);
-    memoryPool->sync_free();
+    memoryPool->add_track_stream(stream);
   }
   void SetDevice(DGLContext ctx) final {
     CUDA_CALL(cudaSetDevice(ctx.device_id));
@@ -224,9 +224,10 @@ DGL_REGISTER_GLOBAL("device_api.gpu")
     *rv = static_cast<void*>(ptr);
   });
 
-DGL_REGISTER_GLOBAL("utils.internal._CAPI_DGLMemoryPoolSyncFree")
+DGL_REGISTER_GLOBAL("utils.internal._CAPI_DGLMemoryPoolAddTrackStream")
 .set_body([] (DGLArgs args, DGLRetValue* rv) {
-  CUDADeviceAPI::Global()->MemoryPoolSyncFree();
+  DGLStreamHandle stream = args[0];
+  CUDADeviceAPI::Global()->MemoryPoolAddTrackStream(stream);
 });
 
 }  // namespace runtime
