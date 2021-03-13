@@ -72,6 +72,8 @@ class PreDataLoader:
 
         self.HtoD_stream = torch.cuda.Stream(device=common_arg.device)
         self.common_arg.slice_stream = torch.cuda.Stream(device=common_arg.device)
+        memory_pool_add_track_stream(self.HtoD_stream)
+        memory_pool_add_track_stream(self.common_arg.slice_stream)
 
         self.buffers = Queue()
         self.init_buffers()
