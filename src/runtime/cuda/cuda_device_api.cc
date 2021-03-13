@@ -10,6 +10,8 @@
 #include <cuda_runtime.h>
 #include "cuda_common.h"
 
+#include "nvToolsExt.h"
+
 #include <thread>
 #include "memory_pool.h"
 
@@ -17,9 +19,16 @@ namespace dgl {
 namespace runtime {
 
 class CUDADeviceAPI final : public DeviceAPI {
+ std::mutex buffer_pinned_mtx;
+ void* buffer_pinned{};
+ const size_t max_size{20000000};
+
  std::shared_ptr<MemoryPool> memoryPool = std::make_shared<MemoryPool>();
  std::mutex mtx;
  public:
+  CUDADeviceAPI() {
+    CUDA_CALL(cudaMallocHost((void **) &buffer_pinned, max_size));
+  }
   void MemoryPoolAddTrackStream(DGLStreamHandle stream) {
     const std::lock_guard<std::mutex> lock(mtx);
     memoryPool->add_track_stream(stream);
@@ -138,8 +147,36 @@ class CUDADeviceAPI final : public DeviceAPI {
       CUDA_CALL(cudaSetDevice(ctx_from.device_id));
       GPUCopy(from, to, size, cudaMemcpyDeviceToHost, cu_stream);
     } else if (ctx_from.device_type == kDLCPU && ctx_to.device_type == kDLGPU) {
+      const std::lock_guard<std::mutex> lock(buffer_pinned_mtx);
       CUDA_CALL(cudaSetDevice(ctx_to.device_id));
-      GPUCopy(from, to, size, cudaMemcpyHostToDevice, cu_stream);
+      void* from_pinned;
+      bool flag = false;
+
+      if(size<max_size) from_pinned = buffer_pinned;
+      else {
+          std::cerr << "reallocate pinned memory" << std::endl;
+          flag = true;
+          nvtxRangePushA("m");
+          CUDA_CALL(cudaMallocHost((void**)&from_pinned, size));
+          nvtxRangePop();
+      }
+
+      nvtxRangePushA("mtp");
+      memcpy(from_pinned, from, size);
+      nvtxRangePop();
+
+      nvtxRangePushA("ptd");
+      GPUCopy(from_pinned, to, size, cudaMemcpyHostToDevice, cu_stream);
+      nvtxRangePop();
+
+      CUDA_CALL(cudaStreamSynchronize(cu_stream));
+
+      if(flag) {
+          std::cerr << "free reallocated pinned memory" << std::endl;
+          nvtxRangePushA("f");
+          CUDA_CALL(cudaFreeHost(from_pinned));
+          nvtxRangePop();
+      }
     } else {
       LOG(FATAL) << "expect copy from/to GPU or between GPU";
     }

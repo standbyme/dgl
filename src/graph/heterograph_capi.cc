@@ -450,10 +450,12 @@ DGL_REGISTER_GLOBAL("heterograph_index._CAPI_DGLHeteroCopyTo")
     HeteroGraphRef hg = args[0];
     int device_type = args[1];
     int device_id = args[2];
+    DGLStreamHandle stream = args[3];
+
     DLContext ctx;
     ctx.device_type = static_cast<DLDeviceType>(device_type);
     ctx.device_id = device_id;
-    HeteroGraphPtr hg_new = HeteroGraph::CopyTo(hg.sptr(), ctx);
+    HeteroGraphPtr hg_new = HeteroGraph::CopyTo(hg.sptr(), ctx, stream);
     *rv = HeteroGraphRef(hg_new);
   });
 
