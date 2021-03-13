@@ -144,7 +144,7 @@ def run(args, device, data):
         drop_last=False,
         num_workers=args.num_workers)
 
-    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(args.free_every, nfeat))
+    pre_dataloader = PreDataLoader(dataloader, args.num_epochs, CommonArg(nfeat))
     # Define model and optimizer
     model = GAT(in_feats, args.num_hidden, n_classes, args.num_layers, num_heads, F.relu)
     model = model.to(device)
