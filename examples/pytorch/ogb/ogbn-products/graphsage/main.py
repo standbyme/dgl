@@ -1,3 +1,5 @@
+import csv
+
 import dgl
 import numpy as np
 import torch as th
@@ -153,31 +155,20 @@ def run(args, device, data):
     iter_tput = []
     best_eval_acc = 0
     best_test_acc = 0
+
+    prev_nodes = th.empty(0)
     for epoch in range(args.num_epochs):
         nvtx.range_push("e")
         tic = time.time()
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (blocks, batch_inputs, batch_labels, seeds_length) in enumerate(pre_dataloader):
-            tic_step = time.time()
-
-            nvtx.range_push("c")
-            # Compute loss and prediction
-            batch_pred = model(blocks, batch_inputs)
-            loss = loss_fcn(batch_pred, batch_labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            nvtx.range_pop()  # c
-
-            iter_tput.append(seeds_length / (time.time() - tic_step))
-            if args.log and step % args.log_every == 0:
-                acc = compute_acc(batch_pred, batch_labels)
-                gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
-                print(
-                    'Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
-                        epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
+        for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+            intersection = np.intersect1d(prev_nodes, input_nodes)
+            intersection_len = len(intersection)
+            input_nodes_len = len(input_nodes)
+            writer.writerow({'ratio': intersection_len / input_nodes_len})
+            prev_nodes = input_nodes
 
         toc = time.time()
         nvtx.range_pop()  # e
@@ -279,6 +270,10 @@ if __name__ == '__main__':
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
 
+    csv_file = open(f'cache-hit-ratio.csv', 'w')
+    writer = csv.DictWriter(csv_file, fieldnames=['ratio'])
+    writer.writeheader()
+
     # Run 10 times
     test_accs = []
     for i in range(args.num_times):
@@ -287,3 +282,5 @@ if __name__ == '__main__':
             v = v.cpu().numpy()
         test_accs.append(v)
         print('Average test accuracy:', np.mean(test_accs), '±', np.std(test_accs))
+
+    csv_file.close()
