@@ -27,6 +27,8 @@ public:
   void *lock();
 
   bool isFree();
+
+  void clearEvents();
 };
 
 struct Comp {
