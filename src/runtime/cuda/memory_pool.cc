@@ -18,10 +18,10 @@ void *MemoryBlock::lock() {
 
   for (auto &stream : *track_streams) {
     cudaEvent_t event;
-    cudaEventCreate(&event);
+    CUDA_CALL(cudaEventCreate(&event));
 
     auto cu_stream = static_cast<cudaStream_t>(stream);
-    cudaEventRecord(event, cu_stream);
+    CUDA_CALL(cudaEventRecord(event, cu_stream));
 
     events.emplace_back(event);
   }
@@ -42,7 +42,7 @@ bool MemoryBlock::isFree() {
       return error == cudaSuccess;
     });
     if (result) {
-      events.clear();
+      clearEvents();
       return true;
     } else {
       return false;
@@ -50,6 +50,13 @@ bool MemoryBlock::isFree() {
   } else {
     return false;
   }
+}
+
+void MemoryBlock::clearEvents() {
+  for (auto &event : events) {
+    CUDA_CALL(cudaEventDestroy(event));
+  }
+  events.clear();
 }
 
 void MemoryPool::back(void *ret) {
