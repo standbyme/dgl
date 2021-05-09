@@ -270,7 +270,7 @@ if __name__ == '__main__':
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
 
-    csv_file = open(f'cache-hit-ratio.csv', 'w')
+    csv_file = open(f'{args.dataset}-cache-hit-ratio.csv', 'w')
     writer = csv.DictWriter(csv_file, fieldnames=['ratio'])
     writer.writeheader()
 
