@@ -5,6 +5,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.cuda import nvtx
 
 import time
 import argparse
@@ -73,6 +74,7 @@ def run(_args, _device, _data):
     best_eval_acc = 0
     best_test_acc = 0
     for epoch in range(_args.num_epochs):
+        nvtx.range_push("e")
         tic = time.time()
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
@@ -86,12 +88,14 @@ def run(_args, _device, _data):
             # Load the input features as well as output labels
             batch_inputs, batch_labels = load_subtensor(_nfeat, _labels, seeds, input_nodes)
 
+            nvtx.range_push("c")
             # Compute loss and prediction
             batch_pred = model(blocks, batch_inputs)
             loss = loss_fcn(batch_pred, batch_labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            nvtx.range_pop()  # c
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
             if _args.log and step % _args.log_every == 0:
@@ -102,6 +106,7 @@ def run(_args, _device, _data):
                     f'Speed (samples/sec) {np.mean(iter_tput[3:]):.4f} | GPU {gpu_mem_alloc:.1f} MB')
 
         toc = time.time()
+        nvtx.range_pop()  # e
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
         if epoch >= 2:
             avg += toc - tic
