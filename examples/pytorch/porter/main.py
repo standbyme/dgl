@@ -12,6 +12,7 @@ import argparse
 from ogb.nodeproppred import DglNodePropPredDataset
 
 from GraphSAGE import SAGE
+from GAT import GAT
 
 
 def compute_acc(pred, _labels):
@@ -32,7 +33,12 @@ def evaluate(model, g, _nfeat, _labels, val_nid, test_nid, _device):
     """
     model.eval()
     with th.no_grad():
-        pred = model.inference(g, _nfeat, _device)
+        if args.model == "graphsage":
+            pred = model.inference(g, _nfeat, _device)
+        elif args.model == "gat":
+            pred = model.inference(g, _nfeat, args.head, _device)
+        else:
+            raise NotImplemented()
     model.train()
     return compute_acc(pred[val_nid], _labels[val_nid]), compute_acc(pred[test_nid], _labels[test_nid]), pred
 
@@ -63,7 +69,13 @@ def run(_args, _device, _data):
         num_workers=_args.num_workers)
 
     # Define model and optimizer
-    model = SAGE(_args, _in_feats, _args.num_hidden, _n_classes, _args.num_layers, F.relu, _args.dropout)
+    if _args.model == "graphsage":
+        model = SAGE(_args, _in_feats, _args.num_hidden, _n_classes, _args.num_layers, F.relu, _args.dropout)
+    elif _args.model == "gat":
+        model = GAT(_args, _in_feats, _args.num_hidden, _n_classes, _args.num_layers, _args.head, F.relu)
+    else:
+        raise NotImplemented()
+
     model = model.to(_device)
     loss_fcn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=_args.lr, weight_decay=_args.wd)
@@ -145,7 +157,9 @@ if __name__ == '__main__':
     argparser.add_argument('--num-workers', type=int, default=4,
                            help="Number of sampling processes. Use 0 for no extra process.")
     argparser.add_argument('--save-pred', type=str, default='')
+    argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
+    argparser.add_argument('--model', type=str, required=True, choices=['graphsage', 'gat'])
     args = argparser.parse_args()
 
     if args.gpu >= 0:
@@ -160,6 +174,11 @@ if __name__ == '__main__':
     graph, labels = data[0]
     nfeat = graph.ndata.pop('feat').to(device)
     labels = labels[:, 0].to(device)
+
+    if args.model == "gat":
+        print('Total edges before adding self-loop {}'.format(graph.num_edges()))
+        graph = graph.remove_self_loop().add_self_loop()
+        print('Total edges after adding self-loop {}'.format(graph.num_edges()))
 
     in_feats = nfeat.shape[1]
     n_classes = (labels.max() + 1).item()
