@@ -11,6 +11,7 @@ import time
 import argparse
 from ogb.nodeproppred import DglNodePropPredDataset
 
+from GCN import GCN
 from GraphSAGE import SAGE
 from GAT import GAT
 
@@ -33,7 +34,9 @@ def evaluate(model, g, _nfeat, _labels, val_nid, test_nid, _device):
     """
     model.eval()
     with th.no_grad():
-        if args.model == "graphsage":
+        if args.model == "gcn":
+            raise NotImplemented()
+        elif args.model == "graphsage":
             pred = model.inference(g, _nfeat, _device)
         elif args.model == "gat":
             pred = model.inference(g, _nfeat, args.head, _device)
@@ -69,7 +72,9 @@ def run(_args, _device, _data):
         num_workers=_args.num_workers)
 
     # Define model and optimizer
-    if _args.model == "graphsage":
+    if _args.model == "gcn":
+        model = GCN(_in_feats, _args.num_hidden, _n_classes, _args.num_layers, F.relu, _args.dropout)
+    elif _args.model == "graphsage":
         model = SAGE(_args, _in_feats, _args.num_hidden, _n_classes, _args.num_layers, F.relu, _args.dropout)
     elif _args.model == "gat":
         model = GAT(_args, _in_feats, _args.num_hidden, _n_classes, _args.num_layers, _args.head, F.relu)
@@ -159,7 +164,7 @@ if __name__ == '__main__':
     argparser.add_argument('--save-pred', type=str, default='')
     argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
-    argparser.add_argument('--model', type=str, required=True, choices=['graphsage', 'gat'])
+    argparser.add_argument('--model', type=str, required=True, choices=['gcn', 'graphsage', 'gat'])
     args = argparser.parse_args()
 
     if args.gpu >= 0:
@@ -175,7 +180,7 @@ if __name__ == '__main__':
     nfeat = graph.ndata.pop('feat').to(device)
     labels = labels[:, 0].to(device)
 
-    if args.model == "gat":
+    if args.model == "gcn" or args.model == "gat":
         print('Total edges before adding self-loop {}'.format(graph.num_edges()))
         graph = graph.remove_self_loop().add_self_loop()
         print('Total edges after adding self-loop {}'.format(graph.num_edges()))
