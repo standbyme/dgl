@@ -9,6 +9,8 @@ from ...distributed import DistDataLoader
 from ...ndarray import NDArray as DGLNDArray
 from ... import backend as F
 
+from torch.cuda import nvtx
+
 class _ScalarDataBatcherIter:
     def __init__(self, dataset, batch_size, drop_last):
         self.dataset = dataset
@@ -229,7 +231,12 @@ class _NodeDataLoaderIter:
 
     def __next__(self):
         # input_nodes, output_nodes, blocks
-        result_ = next(self.iter_)
+        try:
+            nvtx.range_push("s")
+            result_ = next(self.iter_)
+        finally:
+            nvtx.range_pop()
+
         _restore_blocks_storage(result_[-1], self.node_dataloader.collator.g)
 
         result = [_to_device(data, self.device) for data in result_]
