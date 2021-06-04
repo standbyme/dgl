@@ -142,6 +142,48 @@ def run(_args, _device, _data):
     return best_test_acc
 
 
+def split_dataset_idx(_graph: dgl.DGLHeteroGraph):
+    num_nodes = _graph.num_nodes()
+    block_size = num_nodes // 100
+
+    _train_idx_size = block_size
+    _val_idx_size = block_size * 10
+    _test_idx_size = block_size * 25
+
+    _train_idx = th.linspace(0, _train_idx_size - 1, _train_idx_size, dtype=th.int64)
+    _val_idx = th.linspace(_train_idx_size, _train_idx_size + _val_idx_size - 1, _val_idx_size, dtype=th.int64)
+    _test_idx = th.linspace(_train_idx_size + _val_idx_size, _train_idx_size + _val_idx_size + _test_idx_size - 1,
+                            _test_idx_size, dtype=th.int64)
+
+    return _train_idx, _val_idx, _test_idx
+
+
+def load_data(_dataset, _device):
+    if _dataset == 'enwiki':
+        edge = th.load('./dataset/wikipedia_link_en/edge.pt').long()
+        _u, _v = edge[0], edge[1]
+        _graph = dgl.graph((_u, _v))
+        _nfeat = th.rand((_graph.num_nodes(), 100), device=_device, dtype=th.float32)
+        _labels = th.randint(10, (_graph.num_nodes(),), device=_device, dtype=th.int64)
+        _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
+    else:
+        _data = DglNodePropPredDataset(name=f'ogbn-{_dataset}')
+        _splitted_idx = _data.get_idx_split()
+        _train_idx, _val_idx, _test_idx = _splitted_idx['train'], _splitted_idx['valid'], _splitted_idx['test']
+        if _dataset == "mag":
+            _train_idx, _val_idx, _test_idx = _train_idx['paper'], _val_idx['paper'], _test_idx['paper']
+
+        _graph, _labels = _data[0]
+        if _dataset == "mag":
+            _graph = dgl.edge_type_subgraph(_graph, [('paper', 'cites', 'paper')])
+            _labels = _labels["paper"]
+
+        _nfeat = _graph.ndata.pop('feat').to(device)
+        _labels = _labels[:, 0].to(_device)
+
+    return _train_idx, _val_idx, _test_idx, _labels, _nfeat, _graph
+
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
@@ -165,6 +207,7 @@ if __name__ == '__main__':
     argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
     argparser.add_argument('--model', type=str, required=True, choices=['gcn', 'graphsage', 'gat'])
+    argparser.add_argument('--dataset', type=str, required=True, choices=['arxiv', 'products', 'mag', 'enwiki'])
     args = argparser.parse_args()
 
     if args.gpu >= 0:
@@ -172,13 +215,7 @@ if __name__ == '__main__':
     else:
         device = th.device('cpu')
 
-    # load ogbn-products data
-    data = DglNodePropPredDataset(name='ogbn-products')
-    splitted_idx = data.get_idx_split()
-    train_idx, val_idx, test_idx = splitted_idx['train'], splitted_idx['valid'], splitted_idx['test']
-    graph, labels = data[0]
-    nfeat = graph.ndata.pop('feat').to(device)
-    labels = labels[:, 0].to(device)
+    train_idx, val_idx, test_idx, labels, nfeat, graph = load_data(args.dataset, device)
 
     if args.model == "gcn" or args.model == "gat":
         print('Total edges before adding self-loop {}'.format(graph.num_edges()))
