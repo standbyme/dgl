@@ -10,6 +10,7 @@ from torch.cuda import nvtx
 import time
 import argparse
 from ogb.nodeproppred import DglNodePropPredDataset
+from dgl.data.reddit import RedditDataset
 
 from GCN import GCN
 from GraphSAGE import SAGE
@@ -143,8 +144,7 @@ def run(_args, _device, _data):
 
 
 def split_dataset_idx(_graph: dgl.DGLHeteroGraph):
-    num_nodes = _graph.num_nodes()
-    block_size = num_nodes // 100
+    block_size = 200_000
 
     _train_idx_size = block_size
     _val_idx_size = block_size * 10
@@ -158,12 +158,33 @@ def split_dataset_idx(_graph: dgl.DGLHeteroGraph):
     return _train_idx, _val_idx, _test_idx
 
 
-def load_data(_dataset, _device):
-    if _dataset == 'enwiki':
+def load_data(_args, _device):
+    _dataset = _args.dataset
+    if _args.env == "tiny":
+        feat_dim = 100
+    elif _args.env == "large":
+        feat_dim = 500
+    else:
+        raise NotImplemented()
+
+    if _dataset == 'reddit':
+        reddit_dataset = RedditDataset()
+        _graph = reddit_dataset.graph
+        _nfeat = reddit_dataset.features.to(_device)
+        _labels = reddit_dataset.labels.to(_device)
+        _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
+    elif _dataset == 'livejournal':
+        edge = th.load('./dataset/livejournal/edge.pt').long()
+        _u, _v = edge[0], edge[1]
+        _graph = dgl.graph((_u, _v))
+        _nfeat = th.rand((_graph.num_nodes(), feat_dim), device=_device, dtype=th.float32)
+        _labels = th.randint(10, (_graph.num_nodes(),), device=_device, dtype=th.int64)
+        _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
+    elif _dataset == 'enwiki':
         edge = th.load('./dataset/wikipedia_link_en/edge.pt').long()
         _u, _v = edge[0], edge[1]
         _graph = dgl.graph((_u, _v))
-        _nfeat = th.rand((_graph.num_nodes(), 100), device=_device, dtype=th.float32)
+        _nfeat = th.rand((_graph.num_nodes(), feat_dim), device=_device, dtype=th.float32)
         _labels = th.randint(10, (_graph.num_nodes(),), device=_device, dtype=th.int64)
         _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
     else:
@@ -207,7 +228,10 @@ if __name__ == '__main__':
     argparser.add_argument('--head', type=int, default=4)
     argparser.add_argument('--wd', type=float, default=0)
     argparser.add_argument('--model', type=str, required=True, choices=['gcn', 'graphsage', 'gat'])
-    argparser.add_argument('--dataset', type=str, required=True, choices=['arxiv', 'products', 'mag', 'enwiki'])
+    argparser.add_argument('--dataset', type=str, required=True,
+                           choices=['reddit', 'arxiv', 'products', 'mag', 'enwiki', 'livejournal'])
+    argparser.add_argument('--env', type=str, required=True,
+                           choices=['tiny', 'large'])
     args = argparser.parse_args()
 
     if args.gpu >= 0:
@@ -215,7 +239,7 @@ if __name__ == '__main__':
     else:
         device = th.device('cpu')
 
-    train_idx, val_idx, test_idx, labels, nfeat, graph = load_data(args.dataset, device)
+    train_idx, val_idx, test_idx, labels, nfeat, graph = load_data(args, device)
 
     if args.model == "gcn" or args.model == "gat":
         print('Total edges before adding self-loop {}'.format(graph.num_edges()))
