@@ -26,6 +26,7 @@ class GCN(nn.Module):
             self.layers.append(GraphConv(n_hidden, n_hidden, activation=activation))
         # output layer
         self.layers.append(GraphConv(n_hidden, n_classes))
+        self.linear = nn.Linear(n_hidden, n_classes)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, blocks, x):
@@ -41,4 +42,5 @@ class GCN(nn.Module):
             h = layer(block, (h, h_dst))
             if l != len(self.layers) - 1:
                 h = self.dropout(h)
+        h = self.linear(h)
         return h
