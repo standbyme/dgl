@@ -51,7 +51,7 @@ def load_subtensor(_nfeat, _labels, seeds, input_nodes):
     """
     Extracts features and labels for a set of nodes.
     """
-    batch_inputs = _nfeat[input_nodes]
+    batch_inputs = _nfeat[input_nodes].to(device)
     batch_labels = _labels[seeds]
     return batch_inputs, batch_labels
 
@@ -170,21 +170,21 @@ def load_data(_args, _device):
     if _dataset == 'reddit':
         reddit_dataset = RedditDataset()
         _graph = reddit_dataset[0]
-        _nfeat = _graph.ndata['feat'].to(_device)
+        _nfeat = _graph.ndata['feat']
         _labels = _graph.ndata['label'].to(_device)
         _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
     elif _dataset == 'livejournal':
         edge = th.load('./dataset/livejournal/edge.pt').long()
         _u, _v = edge[0], edge[1]
         _graph = dgl.graph((_u, _v))
-        _nfeat = th.rand((_graph.num_nodes(), feat_dim), device=_device, dtype=th.float32)
+        _nfeat = th.rand((_graph.num_nodes(), feat_dim), dtype=th.float32)
         _labels = th.randint(10, (_graph.num_nodes(),), device=_device, dtype=th.int64)
         _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
     elif _dataset == 'enwiki':
         edge = th.load('./dataset/wikipedia_link_en/edge.pt').long()
         _u, _v = edge[0], edge[1]
         _graph = dgl.graph((_u, _v))
-        _nfeat = th.rand((_graph.num_nodes(), feat_dim), device=_device, dtype=th.float32)
+        _nfeat = th.rand((_graph.num_nodes(), feat_dim), dtype=th.float32)
         _labels = th.randint(10, (_graph.num_nodes(),), device=_device, dtype=th.int64)
         _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
     else:
@@ -199,7 +199,7 @@ def load_data(_args, _device):
             _graph = dgl.edge_type_subgraph(_graph, [('paper', 'cites', 'paper')])
             _labels = _labels["paper"]
 
-        _nfeat = _graph.ndata.pop('feat').to(device)
+        _nfeat = _graph.ndata.pop('feat')
         _labels = _labels[:, 0].to(_device)
 
     return _train_idx, _val_idx, _test_idx, _labels, _nfeat, _graph
