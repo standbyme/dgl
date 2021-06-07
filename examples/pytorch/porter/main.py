@@ -169,9 +169,9 @@ def load_data(_args, _device):
 
     if _dataset == 'reddit':
         reddit_dataset = RedditDataset()
-        _graph = reddit_dataset.graph
-        _nfeat = reddit_dataset.features.to(_device)
-        _labels = reddit_dataset.labels.to(_device)
+        _graph = reddit_dataset[0]
+        _nfeat = _graph.ndata['feat'].to(_device)
+        _labels = _graph.ndata['label'].to(_device)
         _train_idx, _val_idx, _test_idx = split_dataset_idx(_graph)
     elif _dataset == 'livejournal':
         edge = th.load('./dataset/livejournal/edge.pt').long()
