@@ -15,6 +15,7 @@ from dgl.data.reddit import RedditDataset
 from GCN import GCN
 from GraphSAGE import SAGE
 from GAT import GAT
+from cache import RecycleCache
 
 
 def compute_acc(pred, _labels):
@@ -98,13 +99,17 @@ def run(_args, _device, _data):
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+            compress_result = cache.compress(input_nodes.cuda())
+
             tic_step = time.time()
 
             # copy block to gpu
             blocks = [blk.int().to(_device) for blk in blocks]
 
             # Load the input features as well as output labels
-            batch_inputs, batch_labels = load_subtensor(_nfeat, _labels, seeds, input_nodes)
+            supplement_nfeat_slice, batch_labels = load_subtensor(_nfeat, _labels, seeds
+                                                                  , compress_result.supplement_nodes)
+            batch_inputs = cache.decompress(compress_result, supplement_nfeat_slice)
 
             nvtx.range_push("c")
             # Compute loss and prediction
@@ -253,6 +258,7 @@ if __name__ == '__main__':
     graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
+    cache = RecycleCache(device, in_feats)
 
     # Run 10 times
     test_accs = []
