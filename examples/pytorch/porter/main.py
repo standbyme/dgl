@@ -15,6 +15,7 @@ from dgl.data.reddit import RedditDataset
 from GCN import GCN
 from GraphSAGE import SAGE
 from GAT import GAT
+from prefetch import PrefetchDataLoader, CommonArg
 
 
 def compute_acc(pred, _labels):
@@ -71,6 +72,8 @@ def run(_args, _device, _data):
         shuffle=True,
         drop_last=False,
         num_workers=_args.num_workers)
+    prefetch_dataloader = PrefetchDataLoader(dataloader, args.num_epochs,
+                                             CommonArg(device, nfeat, labels, lambda x: x.int()))
 
     # Define model and optimizer
     if _args.model == "gcn":
@@ -97,14 +100,8 @@ def run(_args, _device, _data):
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+        for step, (blocks, batch_inputs, batch_labels, seeds_length) in enumerate(prefetch_dataloader):
             tic_step = time.time()
-
-            # copy block to gpu
-            blocks = [blk.int().to(_device) for blk in blocks]
-
-            # Load the input features as well as output labels
-            batch_inputs, batch_labels = load_subtensor(_nfeat, _labels, seeds, input_nodes)
 
             nvtx.range_push("c")
             # Compute loss and prediction
@@ -115,7 +112,7 @@ def run(_args, _device, _data):
             optimizer.step()
             nvtx.range_pop()  # c
 
-            iter_tput.append(len(seeds) / (time.time() - tic_step))
+            iter_tput.append(seeds_length / (time.time() - tic_step))
             if _args.log and step % _args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
