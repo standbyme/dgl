@@ -15,7 +15,7 @@ from dgl.data.reddit import RedditDataset
 from GCN import GCN
 from GraphSAGE import SAGE
 from GAT import GAT
-from cache import RecycleCache
+from cache import RecycleCache, CompressArg
 
 
 def compute_acc(pred, _labels):
@@ -96,10 +96,15 @@ def run(_args, _device, _data):
         nvtx.range_push("e")
         tic = time.time()
 
+        prev_nodes_argsort_index = th.empty(0, dtype=th.int64, device=device)
+        sorted_prev_nodes = th.empty(0, dtype=th.int64, device=device)
+        compress_arg = CompressArg(prev_nodes_argsort_index, sorted_prev_nodes)
+        prev = th.empty(0, in_feats, device=device)
+
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
-            compress_result = cache.compress(input_nodes.cuda())
+            compress_result = cache.compress(input_nodes.cuda(), compress_arg)
 
             tic_step = time.time()
 
@@ -108,8 +113,8 @@ def run(_args, _device, _data):
 
             # Load the input features as well as output labels
             supplement_nfeat_slice, batch_labels = load_subtensor(_nfeat, _labels, seeds
-                                                                  , compress_result.supplement_nodes)
-            batch_inputs = cache.decompress(compress_result, supplement_nfeat_slice)
+                                                                  , compress_result.decompress_arg.supplement_nodes)
+            batch_inputs = cache.decompress(compress_result.decompress_arg, supplement_nfeat_slice, prev)
 
             nvtx.range_push("c")
             # Compute loss and prediction
@@ -119,6 +124,9 @@ def run(_args, _device, _data):
             loss.backward()
             optimizer.step()
             nvtx.range_pop()  # c
+
+            compress_arg = compress_result.compress_arg
+            prev = batch_inputs
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
             if _args.log and step % _args.log_every == 0:
