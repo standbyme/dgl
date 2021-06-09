@@ -3,8 +3,7 @@ from dataclasses import dataclass
 import torch
 from torch.cuda import nvtx
 
-import numpy as np
-
+import pytorch_extension
 
 @dataclass
 class CompressArg:
@@ -41,21 +40,19 @@ class RecycleCache:
         nvtx.range_pop()
 
         nvtx.range_push("c1")
-        rest_nodes = np.intersect1d(sorted_curr_nodes.cpu(), compress_arg.sorted_prev_nodes.cpu())
+        rest_nodes = pytorch_extension.intersect1d(sorted_curr_nodes, compress_arg.sorted_prev_nodes)
         nvtx.range_pop()
 
         nvtx.range_push("c2")
-        rest_sorted_curr_index = torch.searchsorted(sorted_curr_nodes, torch.from_numpy(rest_nodes).to(self.device))
+        rest_sorted_curr_index = torch.searchsorted(sorted_curr_nodes, rest_nodes)
         rest_curr_index = curr_nodes_argsort_index[rest_sorted_curr_index]
 
-        rest_sorted_prev_index = torch.searchsorted(compress_arg.sorted_prev_nodes,
-                                                    torch.from_numpy(rest_nodes).to(self.device))
+        rest_sorted_prev_index = torch.searchsorted(compress_arg.sorted_prev_nodes, rest_nodes)
         rest_prev_index = compress_arg.prev_nodes_argsort_index[rest_sorted_prev_index]
         nvtx.range_pop()
 
         nvtx.range_push("c3")
-        supplement_nodes = torch.from_numpy(np.setdiff1d(sorted_curr_nodes.cpu(),
-                                                         compress_arg.sorted_prev_nodes.cpu()))
+        supplement_nodes = pytorch_extension.setdiff1d(sorted_curr_nodes, compress_arg.sorted_prev_nodes)
         nvtx.range_pop()
 
         nvtx.range_push("c4")
