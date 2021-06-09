@@ -115,7 +115,8 @@ class PrefetchDataLoader:
 
             nvtx.range_push("dfs")
             buffer = self.buffers.get()
-            torch.index_select(self.common_arg.nfeat, 0, compress_result.decompress_arg.supplement_nodes, out=buffer)
+            torch.index_select(self.common_arg.nfeat, 0, compress_result.decompress_arg.supplement_nodes.cpu(),
+                               out=buffer)
             nvtx.range_pop()
 
             if self.common_arg.block_transform:
