@@ -6,6 +6,8 @@ from typing import Callable
 import torch
 from torch.cuda import nvtx
 
+from cache import CompressArg, RecycleCache
+
 
 @dataclass
 class CommonArg:
@@ -46,21 +48,22 @@ class PrefetchDataLoaderIter:
         if v is None:
             raise StopIteration
 
-        blocks_device, batch_inputs_device, seeds = v
+        blocks_device, batch_inputs_device, seeds, decompress_arg = v
 
         with torch.cuda.stream(self.common_arg.slice_stream):
             nvtx.range_push("dl")
             batch_labels = self.common_arg.labels[seeds]
             nvtx.range_pop()
 
-        return blocks_device, batch_inputs_device, batch_labels, len(seeds)
+        return blocks_device, batch_inputs_device, batch_labels, len(seeds), decompress_arg
 
     def raw__next__(self):
         return self.dataloader_iter.__next__()
 
 
 class PrefetchDataLoader:
-    def __init__(self, dataloader, num_epochs: int, common_arg: CommonArg):
+    def __init__(self, dataloader, num_epochs: int, common_arg: CommonArg, cache: RecycleCache):
+        self.cache = cache
         self.common_arg = common_arg
         self.dataloader = dataloader
         self.num_epochs = num_epochs
@@ -79,6 +82,10 @@ class PrefetchDataLoader:
 
         self.slice_thread.start()
         self.transfer_thread.start()
+
+        prev_nodes_argsort_index = torch.empty(0, dtype=torch.int64, device=common_arg.device)
+        sorted_prev_nodes = torch.empty(0, dtype=torch.int64, device=common_arg.device)
+        self.compress_arg = CompressArg(prev_nodes_argsort_index, sorted_prev_nodes)
 
     def init_buffers(self):
         feature_dim = self.common_arg.nfeat.shape[1]
@@ -104,16 +111,19 @@ class PrefetchDataLoader:
                 continue
 
             input_nodes, seeds, blocks = v
+            compress_result = self.cache.compress(input_nodes.cuda(), self.compress_arg)
 
             nvtx.range_push("dfs")
             buffer = self.buffers.get()
-            torch.index_select(self.common_arg.nfeat, 0, input_nodes, out=buffer)
+            torch.index_select(self.common_arg.nfeat, 0, compress_result.decompress_arg.supplement_nodes, out=buffer)
             nvtx.range_pop()
 
             if self.common_arg.block_transform:
                 blocks = list(map(self.common_arg.block_transform, blocks))
 
-            self.transfer_queue.put_nowait((blocks, buffer, seeds))
+            self.compress_arg = compress_result.compress_arg
+
+            self.transfer_queue.put_nowait((blocks, buffer, seeds, compress_result.decompress_arg))
 
     def transfer(self):
         while True:
@@ -122,7 +132,7 @@ class PrefetchDataLoader:
                 self.common_arg.compute_queue.put_nowait(None)
                 continue
 
-            blocks_cpu, batch_inputs_cpu, seeds = v
+            blocks_cpu, batch_inputs_cpu, seeds, decompress_arg = v
 
             with torch.cuda.stream(self.HtoD_stream):
                 nvtx.range_push("dg")
@@ -134,4 +144,4 @@ class PrefetchDataLoader:
                 nvtx.range_pop()
 
             self.buffers.put_nowait(batch_inputs_cpu)
-            self.common_arg.compute_queue.put_nowait((blocks_device, batch_inputs_device, seeds))
+            self.common_arg.compute_queue.put_nowait((blocks_device, batch_inputs_device, seeds, decompress_arg))

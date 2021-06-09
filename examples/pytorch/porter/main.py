@@ -16,6 +16,7 @@ from GCN import GCN
 from GraphSAGE import SAGE
 from GAT import GAT
 from prefetch import PrefetchDataLoader, CommonArg
+from cache import RecycleCache
 
 
 def compute_acc(pred, _labels):
@@ -73,7 +74,7 @@ def run(_args, _device, _data):
         drop_last=False,
         num_workers=_args.num_workers)
     prefetch_dataloader = PrefetchDataLoader(dataloader, args.num_epochs,
-                                             CommonArg(device, nfeat, labels, lambda x: x.int()))
+                                             CommonArg(device, nfeat, labels, lambda x: x.int()), cache)
 
     # Define model and optimizer
     if _args.model == "gcn":
@@ -94,14 +95,21 @@ def run(_args, _device, _data):
     iter_tput = []
     best_eval_acc = 0
     best_test_acc = 0
+
+    prev = th.empty(0, in_feats, device=device)
+
     for epoch in range(_args.num_epochs):
         nvtx.range_push("e")
         tic = time.time()
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (blocks, batch_inputs, batch_labels, seeds_length) in enumerate(prefetch_dataloader):
+        for step, (blocks, batch_inputs, batch_labels, seeds_length, decompress_arg) in enumerate(prefetch_dataloader):
             tic_step = time.time()
+
+            nvtx.range_push("de")
+            batch_inputs = cache.decompress(decompress_arg, batch_inputs, prev)
+            nvtx.range_pop()  # de
 
             nvtx.range_push("c")
             # Compute loss and prediction
@@ -111,6 +119,8 @@ def run(_args, _device, _data):
             loss.backward()
             optimizer.step()
             nvtx.range_pop()  # c
+
+            prev = batch_inputs
 
             iter_tput.append(seeds_length / (time.time() - tic_step))
             if _args.log and step % _args.log_every == 0:
@@ -250,6 +260,7 @@ if __name__ == '__main__':
     graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
+    cache = RecycleCache(device, in_feats)
 
     # Run 10 times
     test_accs = []
