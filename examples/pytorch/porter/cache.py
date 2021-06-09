@@ -54,12 +54,13 @@ class RecycleCache:
         nvtx.range_pop()
 
         nvtx.range_push("c3")
-        supplement_nodes = np.setdiff1d(sorted_curr_nodes.cpu(), compress_arg.sorted_prev_nodes.cpu())
+        supplement_nodes = torch.from_numpy(np.setdiff1d(sorted_curr_nodes.cpu(),
+                                                         compress_arg.sorted_prev_nodes.cpu()))
         nvtx.range_pop()
 
         nvtx.range_push("c4")
         supplement_sorted_curr_index = torch.searchsorted(sorted_curr_nodes,
-                                                          torch.from_numpy(supplement_nodes).to(self.device))
+                                                          supplement_nodes.to(self.device))
         supplement_curr_index = torch.take(curr_nodes_argsort_index, supplement_sorted_curr_index)
         nvtx.range_pop()
 
