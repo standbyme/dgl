@@ -80,11 +80,12 @@ class PrefetchDataLoader:
         self.slice_thread.start()
         self.transfer_thread.start()
 
+        self.feature_dim = self.common_arg.nfeat.shape[1]
+
     def init_buffers(self):
-        feature_dim = self.common_arg.nfeat.shape[1]
         total_node_amount_per_batch = 4096 * 5 * 10 * 15
         for _ in range(3):
-            buffer = torch.empty(total_node_amount_per_batch, feature_dim).pin_memory()
+            buffer = torch.empty(total_node_amount_per_batch, self.feature_dim).pin_memory()
             self.buffers.put_nowait(buffer)
 
     def __iter__(self):
@@ -106,7 +107,8 @@ class PrefetchDataLoader:
             input_nodes, seeds, blocks = v
 
             nvtx.range_push("dfs")
-            buffer = self.buffers.get()
+            buffer: torch.Tensor = self.buffers.get()
+            buffer = buffer.resize_(input_nodes.shape[0], self.feature_dim)
             torch.index_select(self.common_arg.nfeat, 0, input_nodes, out=buffer)
             nvtx.range_pop()
 
