@@ -71,6 +71,7 @@ class PrefetchDataLoader:
 
         self.HtoD_stream = torch.cuda.Stream(device=common_arg.device)
         self.common_arg.slice_stream = torch.cuda.Stream(device=common_arg.device)
+        self.feature_dim = self.common_arg.nfeat.shape[1]
 
         self.buffers = Queue()
         self.init_buffers()
@@ -86,8 +87,6 @@ class PrefetchDataLoader:
         prev_nodes_argsort_index = torch.empty(0, dtype=torch.int64, device=common_arg.device)
         sorted_prev_nodes = torch.empty(0, dtype=torch.int64, device=common_arg.device)
         self.compress_arg = CompressArg(prev_nodes_argsort_index, sorted_prev_nodes)
-
-        self.feature_dim = self.common_arg.nfeat.shape[1]
 
     def init_buffers(self):
         total_node_amount_per_batch = 4096 * 5 * 10 * 15
