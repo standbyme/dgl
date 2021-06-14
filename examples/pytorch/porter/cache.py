@@ -5,6 +5,7 @@ from torch.cuda import nvtx
 
 import pytorch_extension
 
+
 @dataclass
 class CompressArg:
     prev_nodes_argsort_index: torch.Tensor
@@ -31,38 +32,44 @@ class RecycleCache:
         self.device = device
         self.nfeat_dim = nfeat_dim
 
+        self.stream = torch.cuda.Stream(device=device)
+        self.stream_ptr = self.stream.cuda_stream
+
     def compress(self, curr_nodes_device: torch.Tensor, compress_arg: CompressArg) -> CompressResult:
         assert curr_nodes_device.is_cuda
 
-        nvtx.range_push("pre")
-        curr_nodes_argsort_index = torch.argsort(curr_nodes_device)
-        sorted_curr_nodes = curr_nodes_device[curr_nodes_argsort_index]
-        nvtx.range_pop()
+        with torch.cuda.stream(self.stream):
+            nvtx.range_push("pre")
+            curr_nodes_argsort_index = torch.argsort(curr_nodes_device)
+            sorted_curr_nodes = curr_nodes_device[curr_nodes_argsort_index]
+            nvtx.range_pop()
 
-        nvtx.range_push("c1")
-        rest_nodes = pytorch_extension.intersect1d(sorted_curr_nodes, compress_arg.sorted_prev_nodes)
-        nvtx.range_pop()
+            nvtx.range_push("c1")
+            rest_nodes = pytorch_extension.intersect1d(sorted_curr_nodes, compress_arg.sorted_prev_nodes,
+                                                       self.stream_ptr)
+            nvtx.range_pop()
 
-        nvtx.range_push("c2")
-        rest_sorted_curr_index = torch.searchsorted(sorted_curr_nodes, rest_nodes)
-        rest_curr_index = curr_nodes_argsort_index[rest_sorted_curr_index]
+            nvtx.range_push("c2")
+            rest_sorted_curr_index = torch.searchsorted(sorted_curr_nodes, rest_nodes)
+            rest_curr_index = curr_nodes_argsort_index[rest_sorted_curr_index]
 
-        rest_sorted_prev_index = torch.searchsorted(compress_arg.sorted_prev_nodes, rest_nodes)
-        rest_prev_index = compress_arg.prev_nodes_argsort_index[rest_sorted_prev_index]
-        nvtx.range_pop()
+            rest_sorted_prev_index = torch.searchsorted(compress_arg.sorted_prev_nodes, rest_nodes)
+            rest_prev_index = compress_arg.prev_nodes_argsort_index[rest_sorted_prev_index]
+            nvtx.range_pop()
 
-        nvtx.range_push("c3")
-        supplement_nodes = pytorch_extension.setdiff1d(sorted_curr_nodes, compress_arg.sorted_prev_nodes)
-        nvtx.range_pop()
+            nvtx.range_push("c3")
+            supplement_nodes = pytorch_extension.setdiff1d(sorted_curr_nodes, compress_arg.sorted_prev_nodes,
+                                                           self.stream_ptr)
+            nvtx.range_pop()
 
-        nvtx.range_push("c4")
-        supplement_sorted_curr_index = torch.searchsorted(sorted_curr_nodes,
-                                                          supplement_nodes.to(self.device))
-        supplement_curr_index = torch.take(curr_nodes_argsort_index, supplement_sorted_curr_index)
-        nvtx.range_pop()
+            nvtx.range_push("c4")
+            supplement_sorted_curr_index = torch.searchsorted(sorted_curr_nodes,
+                                                              supplement_nodes.to(self.device))
+            supplement_curr_index = torch.take(curr_nodes_argsort_index, supplement_sorted_curr_index)
+            nvtx.range_pop()
 
-        compress_arg = CompressArg(curr_nodes_argsort_index, sorted_curr_nodes)
-        decompress_arg = DecompressArg(supplement_nodes, supplement_curr_index, rest_prev_index, rest_curr_index)
+            compress_arg = CompressArg(curr_nodes_argsort_index, sorted_curr_nodes)
+            decompress_arg = DecompressArg(supplement_nodes, supplement_curr_index, rest_prev_index, rest_curr_index)
 
         return CompressResult(compress_arg, decompress_arg)
 
