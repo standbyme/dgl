@@ -44,6 +44,8 @@ class RecycleCache:
             sorted_curr_nodes = curr_nodes_device[curr_nodes_argsort_index]
             nvtx.range_pop()
 
+            self.stream.synchronize()
+
             nvtx.range_push("c1")
             rest_nodes = pytorch_extension.intersect1d(sorted_curr_nodes, compress_arg.sorted_prev_nodes,
                                                        self.stream_ptr)
@@ -71,7 +73,6 @@ class RecycleCache:
             compress_arg = CompressArg(curr_nodes_argsort_index, sorted_curr_nodes)
             decompress_arg = DecompressArg(supplement_nodes, supplement_curr_index, rest_prev_index, rest_curr_index)
 
-        self.stream.synchronize()
         return CompressResult(compress_arg, decompress_arg)
 
     def decompress(self, decompress_arg: DecompressArg,
