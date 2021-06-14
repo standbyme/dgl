@@ -71,6 +71,7 @@ class RecycleCache:
             compress_arg = CompressArg(curr_nodes_argsort_index, sorted_curr_nodes)
             decompress_arg = DecompressArg(supplement_nodes, supplement_curr_index, rest_prev_index, rest_curr_index)
 
+        self.stream.synchronize()
         return CompressResult(compress_arg, decompress_arg)
 
     def decompress(self, decompress_arg: DecompressArg,
