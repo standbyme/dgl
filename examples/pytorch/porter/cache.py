@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import torch
+from dgl.utils import memory_pool_add_track_stream
 from torch.cuda import nvtx
 
 import pytorch_extension
@@ -33,6 +34,8 @@ class RecycleCache:
         self.nfeat_dim = nfeat_dim
 
         self.stream = torch.cuda.Stream(device=device)
+        memory_pool_add_track_stream(self.stream)
+
         self.stream_ptr = self.stream.cuda_stream
 
     def compress(self, curr_nodes_device: torch.Tensor, compress_arg: CompressArg) -> CompressResult:
