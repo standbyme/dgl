@@ -16,6 +16,8 @@ from GCN import GCN
 from GraphSAGE import SAGE
 from GAT import GAT
 
+from dgl.utils import memory_pool_add_track_stream
+
 
 def compute_acc(pred, _labels):
     """
@@ -253,6 +255,8 @@ if __name__ == '__main__':
     graph.create_formats_()
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
+
+    memory_pool_add_track_stream(th.cuda.current_stream())
 
     # Run 10 times
     test_accs = []
