@@ -4,6 +4,7 @@ from threading import Thread
 from typing import Callable
 
 import torch
+from dgl.utils import memory_pool_add_track_stream
 from torch.cuda import nvtx
 
 from cache import CompressArg, RecycleCache
@@ -71,6 +72,8 @@ class PrefetchDataLoader:
 
         self.HtoD_stream = torch.cuda.Stream(device=common_arg.device)
         self.common_arg.slice_stream = torch.cuda.Stream(device=common_arg.device)
+        memory_pool_add_track_stream(self.common_arg.slice_stream)
+
         self.feature_dim = self.common_arg.nfeat.shape[1]
 
         self.buffers = Queue()
