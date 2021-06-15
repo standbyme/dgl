@@ -17,6 +17,8 @@ from GraphSAGE import SAGE
 from GAT import GAT
 from cache import RecycleCache, CompressArg
 
+from dgl.utils import memory_pool_add_track_stream
+
 
 def compute_acc(pred, _labels):
     """
@@ -267,6 +269,8 @@ if __name__ == '__main__':
     # Pack data
     data = train_idx, val_idx, test_idx, in_feats, labels, n_classes, nfeat, graph
     cache = RecycleCache(device, in_feats)
+
+    memory_pool_add_track_stream(th.cuda.current_stream())
 
     # Run 10 times
     test_accs = []
