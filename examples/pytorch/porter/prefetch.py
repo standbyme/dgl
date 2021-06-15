@@ -71,6 +71,8 @@ class PrefetchDataLoader:
         self.iter_count = 0
 
         self.HtoD_stream = torch.cuda.Stream(device=common_arg.device)
+        memory_pool_add_track_stream(self.HtoD_stream)
+
         self.common_arg.slice_stream = torch.cuda.Stream(device=common_arg.device)
         memory_pool_add_track_stream(self.common_arg.slice_stream)
 
