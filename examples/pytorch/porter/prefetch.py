@@ -16,7 +16,7 @@ class CommonArg:
     labels: torch.Tensor
     block_transform: Callable = None
 
-    slice_queue: Queue = Queue()
+    compress_queue: Queue = Queue()
     compute_queue: Queue = Queue()
 
     slice_stream = None
@@ -29,9 +29,9 @@ class PrefetchDataLoaderIter:
 
         self.is_finished = False
 
-        self.fill_slice_queue()
+        self.fill_compress_queue()
 
-    def fill_slice_queue(self):
+    def fill_compress_queue(self):
         if not self.is_finished:
             try:
                 v = self.raw__next__()
@@ -39,10 +39,10 @@ class PrefetchDataLoaderIter:
                 v = None
                 self.is_finished = True
 
-            self.common_arg.slice_queue.put_nowait(v)
+            self.common_arg.compress_queue.put_nowait(v)
 
     def __next__(self):
-        self.fill_slice_queue()
+        self.fill_compress_queue()
 
         v = self.common_arg.compute_queue.get()
         if v is None:
@@ -76,11 +76,14 @@ class PrefetchDataLoader:
         self.buffers = Queue()
         self.init_buffers()
 
+        self.slice_queue: Queue = Queue()
         self.transfer_queue: Queue = Queue()
 
+        self.compress_thread = Thread(target=self.compress, daemon=True)
         self.slice_thread = Thread(target=self.slice, daemon=True)
         self.transfer_thread = Thread(target=self.transfer, daemon=True)
 
+        self.compress_thread.start()
         self.slice_thread.start()
         self.transfer_thread.start()
 
@@ -90,7 +93,7 @@ class PrefetchDataLoader:
 
     def init_buffers(self):
         total_node_amount_per_batch = 4096 * 5 * 10 * 15
-        for _ in range(3):
+        for _ in range(4):
             buffer = torch.empty(total_node_amount_per_batch, self.feature_dim).pin_memory()
             self.buffers.put_nowait(buffer)
 
@@ -103,18 +106,29 @@ class PrefetchDataLoader:
     def raw__iter__(self):
         return self.dataloader.__iter__()
 
-    def slice(self):
+    def compress(self):
         while True:
-            v = self.common_arg.slice_queue.get()
+            v = self.common_arg.compress_queue.get()
             if v is None:
-                self.transfer_queue.put_nowait(None)
+                self.slice_queue.put_nowait(None)
                 continue
 
             input_nodes, seeds, blocks = v
             compress_result = self.cache.compress(input_nodes.cuda(), self.compress_arg)
 
-            nvtx.range_push("dfs")
             buffer: torch.Tensor = self.buffers.get()
+
+            self.slice_queue.put_nowait((compress_result, blocks, seeds, buffer))
+
+    def slice(self):
+        while True:
+            v = self.slice_queue.get()
+            if v is None:
+                self.transfer_queue.put_nowait(None)
+                continue
+
+            compress_result, blocks, seeds, buffer = v
+            nvtx.range_push("dfs")
             buffer = buffer.resize_(compress_result.decompress_arg.supplement_nodes.shape[0], self.feature_dim)
             torch.index_select(self.common_arg.nfeat, 0, compress_result.decompress_arg.supplement_nodes.cpu(),
                                out=buffer)
