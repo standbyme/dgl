@@ -4,7 +4,6 @@ from threading import Thread
 from typing import Callable
 
 import torch
-from dgl.utils import memory_pool_add_track_stream
 from torch.cuda import nvtx
 
 from cache import CompressArg, RecycleCache
@@ -71,10 +70,7 @@ class PrefetchDataLoader:
         self.iter_count = 0
 
         self.HtoD_stream = torch.cuda.Stream(device=common_arg.device)
-        memory_pool_add_track_stream(self.HtoD_stream)
-
         self.common_arg.slice_stream = torch.cuda.Stream(device=common_arg.device)
-        memory_pool_add_track_stream(self.common_arg.slice_stream)
 
         self.feature_dim = self.common_arg.nfeat.shape[1]
 
@@ -120,6 +116,7 @@ class PrefetchDataLoader:
 
             input_nodes, seeds, blocks = v
             compress_result = self.cache.compress(input_nodes.cuda(), self.compress_arg)
+            self.compress_arg = compress_result.compress_arg
 
             buffer: torch.Tensor = self.buffers.get()
 
@@ -141,8 +138,6 @@ class PrefetchDataLoader:
 
             if self.common_arg.block_transform:
                 blocks = list(map(self.common_arg.block_transform, blocks))
-
-            self.compress_arg = compress_result.compress_arg
 
             self.transfer_queue.put_nowait((blocks, buffer, seeds, compress_result.decompress_arg))
 
