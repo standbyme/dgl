@@ -119,7 +119,7 @@ class PrefetchDataLoader:
             self.compress_arg = compress_result.compress_arg
 
             buffer: torch.Tensor = self.buffers.get()
-
+            
             self.slice_queue.put_nowait((compress_result, blocks, seeds, buffer))
 
     def slice(self):
@@ -136,10 +136,16 @@ class PrefetchDataLoader:
                                out=buffer)
             nvtx.range_pop()
 
+            with torch.cuda.stream(self.HtoD_stream):
+                nvtx.range_push("dft")
+                batch_inputs_device = buffer.to(self.common_arg.device, non_blocking=True)
+                nvtx.range_pop()
+                self.buffers.put_nowait(buffer)
+
             if self.common_arg.block_transform:
                 blocks = list(map(self.common_arg.block_transform, blocks))
 
-            self.transfer_queue.put_nowait((blocks, buffer, seeds, compress_result.decompress_arg))
+            self.transfer_queue.put_nowait((blocks, batch_inputs_device, seeds, compress_result.decompress_arg))
 
     def transfer(self):
         while True:
@@ -148,16 +154,11 @@ class PrefetchDataLoader:
                 self.common_arg.compute_queue.put_nowait(None)
                 continue
 
-            blocks_cpu, batch_inputs_cpu, seeds, decompress_arg = v
+            blocks_cpu, batch_inputs_device, seeds, decompress_arg = v
 
             with torch.cuda.stream(self.HtoD_stream):
                 nvtx.range_push("dg")
                 blocks_device = [blk.to(self.common_arg.device, non_blocking=True) for blk in blocks_cpu]
                 nvtx.range_pop()
 
-                nvtx.range_push("dft")
-                batch_inputs_device = batch_inputs_cpu.to(self.common_arg.device, non_blocking=True)
-                nvtx.range_pop()
-
-            self.buffers.put_nowait(batch_inputs_cpu)
             self.common_arg.compute_queue.put_nowait((blocks_device, batch_inputs_device, seeds, decompress_arg))
