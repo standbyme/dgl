@@ -115,7 +115,11 @@ class PrefetchDataLoader:
                 continue
 
             input_nodes, seeds, blocks = v
-            compress_result = self.cache.compress(input_nodes.cuda(), self.compress_arg)
+            with torch.cuda.stream(self.HtoD_stream):
+                input_nodes_device = input_nodes.pin_memory().to(self.common_arg.device, non_blocking=True)
+            
+            self.HtoD_stream.synchronize()
+            compress_result = self.cache.compress(input_nodes_device, self.compress_arg)
             self.compress_arg = compress_result.compress_arg
 
             buffer: torch.Tensor = self.buffers.get()
