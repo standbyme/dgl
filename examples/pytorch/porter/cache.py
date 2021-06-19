@@ -40,7 +40,7 @@ class RecycleCache:
 
         with torch.cuda.stream(self.stream):
             nvtx.range_push("pre")
-            curr_nodes_argsort_index = torch.argsort(curr_nodes_device)
+            curr_nodes_argsort_index = pytorch_extension.argsort(curr_nodes_device, self.stream_ptr).long()
             sorted_curr_nodes = curr_nodes_device[curr_nodes_argsort_index]
             nvtx.range_pop()
 
