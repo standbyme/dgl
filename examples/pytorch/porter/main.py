@@ -98,9 +98,9 @@ def run(_args, _device, _data):
         nvtx.range_push("e")
         tic = time.time()
 
-        prev_nodes_argsort_index = th.empty(0, dtype=th.int64, device=device)
-        sorted_prev_nodes = th.empty(0, dtype=th.int64, device=device)
-        compress_arg = CompressArg(prev_nodes_argsort_index, sorted_prev_nodes)
+        prev_index_map: th.Tensor = th.empty(graph.num_nodes(), dtype=th.int64, device=device)
+        prev_nodes = th.empty(0, dtype=th.int64, device=device)
+        compress_arg = CompressArg(prev_index_map, prev_nodes)
         prev = th.empty(0, in_feats, device=device)
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
