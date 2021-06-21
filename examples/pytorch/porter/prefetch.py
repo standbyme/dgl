@@ -62,7 +62,7 @@ class PrefetchDataLoaderIter:
 
 
 class PrefetchDataLoader:
-    def __init__(self, dataloader, num_epochs: int, common_arg: CommonArg, cache: RecycleCache):
+    def __init__(self, dataloader, num_epochs: int, common_arg: CommonArg, cache: RecycleCache, num_nodes: int):
         self.cache = cache
         self.common_arg = common_arg
         self.dataloader = dataloader
@@ -88,9 +88,9 @@ class PrefetchDataLoader:
         self.slice_thread.start()
         self.transfer_thread.start()
 
-        prev_nodes_argsort_index = torch.empty(0, dtype=torch.int64, device=common_arg.device)
-        sorted_prev_nodes = torch.empty(0, dtype=torch.int64, device=common_arg.device)
-        self.compress_arg = CompressArg(prev_nodes_argsort_index, sorted_prev_nodes)
+        prev_index_map: torch.Tensor = torch.empty(num_nodes, dtype=torch.int64, device=self.common_arg.device)
+        prev_nodes = torch.empty(0, dtype=torch.int64, device=self.common_arg.device)
+        self.compress_arg = CompressArg(prev_index_map, prev_nodes)
 
     def init_buffers(self):
         total_node_amount_per_batch = 4096 * 5 * 10 * 15
@@ -117,13 +117,13 @@ class PrefetchDataLoader:
             input_nodes, seeds, blocks = v
             with torch.cuda.stream(self.HtoD_stream):
                 input_nodes_device = input_nodes.pin_memory().to(self.common_arg.device, non_blocking=True)
-            
+
             self.HtoD_stream.synchronize()
             compress_result = self.cache.compress(input_nodes_device, self.compress_arg)
             self.compress_arg = compress_result.compress_arg
 
             buffer: torch.Tensor = self.buffers.get()
-            
+
             self.slice_queue.put_nowait((compress_result, blocks, seeds, buffer))
 
     def slice(self):

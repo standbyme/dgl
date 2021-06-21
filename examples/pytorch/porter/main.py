@@ -76,7 +76,8 @@ def run(_args, _device, _data):
         drop_last=False,
         num_workers=_args.num_workers)
     prefetch_dataloader = PrefetchDataLoader(dataloader, args.num_epochs,
-                                             CommonArg(device, nfeat, labels, lambda x: x.int()), cache)
+                                             CommonArg(device, nfeat, labels, lambda x: x.int()), cache,
+                                             graph.num_nodes())
 
     # Define model and optimizer
     if _args.model == "gcn":
