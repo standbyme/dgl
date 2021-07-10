@@ -6,6 +6,8 @@ from typing import Callable
 import torch
 from torch.cuda import nvtx
 
+from torch import multiprocessing as mp
+
 
 @dataclass
 class CommonArg:
@@ -59,6 +61,60 @@ class PrefetchDataLoaderIter:
         return self.dataloader_iter.__next__()
 
 
+def transfer_f(queue: Queue, conn, buffers: Queue, device):
+    HtoD_stream = torch.cuda.Stream(device=device)
+
+    with torch.cuda.stream(HtoD_stream):
+        while True:
+            buffer = queue.get()
+
+            nvtx.range_push("dft")
+            batch_inputs_device = buffer.to(device, non_blocking=False)
+            nvtx.range_pop()
+
+            conn.send(batch_inputs_device)
+
+            del batch_inputs_device
+
+            buffers.put_nowait(buffer)
+
+
+def f(device, in_feats, conn):
+    feature_dim = in_feats.shape[1]
+
+    # init buffer: start
+    buffers = Queue()
+    total_node_amount_per_batch = 4096 * 5 * 10 * 15
+    for _ in range(3):
+        # noinspection PyArgumentList
+        buffer = torch.empty(total_node_amount_per_batch, feature_dim, pin_memory=True)
+        assert buffer.is_pinned()
+        buffers.put_nowait(buffer)
+    # init buffer: end
+
+    queue: Queue = Queue()
+    transfer_thread = Thread(target=transfer_f, daemon=True, args=(queue, conn, buffers, device,))
+    transfer_thread.start()
+
+    try:
+        while True:
+            input_nodes = conn.recv()
+            input_nodes: torch.Tensor
+
+            nvtx.range_push("dfs")
+            buffer: torch.Tensor = buffers.get()
+            buffer = buffer.resize_(input_nodes.shape[0], feature_dim)
+            torch.index_select(in_feats, 0, input_nodes, out=buffer)
+            nvtx.range_pop()
+
+            queue.put_nowait(buffer)
+
+            del input_nodes
+
+    except EOFError:
+        pass
+
+
 class PrefetchDataLoader:
     def __init__(self, dataloader, num_epochs: int, common_arg: CommonArg):
         self.common_arg = common_arg
@@ -80,6 +136,16 @@ class PrefetchDataLoader:
 
         self.slice_thread.start()
         self.transfer_thread.start()
+
+        self.ctx = mp.get_context('spawn')
+
+        parent_conn, child_conn = self.ctx.Pipe()
+        self.parent_conn = parent_conn
+
+        feat_slice_process = self.ctx.Process(target=f,
+                                              args=(self.common_arg.device, self.common_arg.nfeat, child_conn,),
+                                              daemon=True)
+        feat_slice_process.start()
 
     def init_buffers(self):
         total_node_amount_per_batch = 4096 * 5 * 10 * 15
@@ -105,16 +171,12 @@ class PrefetchDataLoader:
 
             input_nodes, seeds, blocks = v
 
-            nvtx.range_push("dfs")
-            buffer: torch.Tensor = self.buffers.get()
-            buffer = buffer.resize_(input_nodes.shape[0], self.feature_dim)
-            torch.index_select(self.common_arg.nfeat, 0, input_nodes, out=buffer)
-            nvtx.range_pop()
+            self.parent_conn.send(input_nodes)
 
             if self.common_arg.block_transform:
                 blocks = list(map(self.common_arg.block_transform, blocks))
 
-            self.transfer_queue.put_nowait((blocks, buffer, seeds))
+            self.transfer_queue.put_nowait((blocks, seeds))
 
     def transfer(self):
         while True:
@@ -123,16 +185,12 @@ class PrefetchDataLoader:
                 self.common_arg.compute_queue.put_nowait(None)
                 continue
 
-            blocks_cpu, batch_inputs_cpu, seeds = v
+            blocks_cpu, seeds = v
 
             with torch.cuda.stream(self.HtoD_stream):
                 nvtx.range_push("dg")
                 blocks_device = [blk.to(self.common_arg.device, non_blocking=True) for blk in blocks_cpu]
                 nvtx.range_pop()
 
-                nvtx.range_push("dft")
-                batch_inputs_device = batch_inputs_cpu.to(self.common_arg.device, non_blocking=True)
-                nvtx.range_pop()
-
-            self.buffers.put_nowait(batch_inputs_cpu)
+            batch_inputs_device = self.parent_conn.recv()
             self.common_arg.compute_queue.put_nowait((blocks_device, batch_inputs_device, seeds))

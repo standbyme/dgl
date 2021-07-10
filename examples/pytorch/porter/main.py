@@ -246,6 +246,8 @@ if __name__ == '__main__':
         device = th.device('cpu')
 
     train_idx, val_idx, test_idx, labels, nfeat, graph = load_data(args, device)
+    nfeat: th.Tensor
+    nfeat.share_memory_()
 
     if args.model == "gcn" or args.model == "gat":
         print('Total edges before adding self-loop {}'.format(graph.num_edges()))
