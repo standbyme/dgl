@@ -19,6 +19,8 @@ from prefetch import PrefetchDataLoader, CommonArg
 
 from dgl.utils import memory_pool_add_track_stream
 
+from presample import PreSampleDataLoader
+
 
 def compute_acc(pred, _labels):
     """
@@ -74,6 +76,8 @@ def run(_args, _device, _data):
         shuffle=True,
         drop_last=False,
         num_workers=_args.num_workers)
+    if _args.presample:
+        dataloader = PreSampleDataLoader(dataloader)
     prefetch_dataloader = PrefetchDataLoader(dataloader, args.num_epochs,
                                              CommonArg(device, nfeat, labels, lambda x: x.int()))
 
@@ -97,12 +101,14 @@ def run(_args, _device, _data):
     best_eval_acc = 0
     best_test_acc = 0
     for epoch in range(_args.num_epochs):
+        e = enumerate(prefetch_dataloader)
+
         nvtx.range_push("e")
         tic = time.time()
 
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
-        for step, (blocks, batch_inputs, batch_labels, seeds_length) in enumerate(prefetch_dataloader):
+        for step, (blocks, batch_inputs, batch_labels, seeds_length) in e:
             tic_step = time.time()
 
             nvtx.range_push("c")
@@ -231,6 +237,7 @@ if __name__ == '__main__':
                            choices=['reddit', 'arxiv', 'products', 'mag', 'enwiki', 'livejournal'])
     argparser.add_argument('--env', type=str, required=True,
                            choices=['tiny', 'large'])
+    argparser.add_argument("--presample", action='store_true', default=False)
     args = argparser.parse_args()
 
     if args.gpu >= 0:
